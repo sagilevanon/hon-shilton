@@ -23,7 +23,7 @@ const D3NetworkGraph: React.FC<D3NetworkGraphProps> = ({
 
   useEffect(() => {
     if (!svgRef.current || !containerRef.current || nodes.length === 0) return;
-
+    
     const { width, height } = containerRef.current.getBoundingClientRect();
     
     // Clear previous SVG content
@@ -48,21 +48,17 @@ const D3NetworkGraph: React.FC<D3NetworkGraphProps> = ({
 
     svg.call(zoom as any);
 
-    // Create the simulation with adjusted forces
+    // Create the simulation with basic forces
     const simulation = d3.forceSimulation(nodes as d3.SimulationNodeDatum[])
       .force('link', d3.forceLink(edges)
         .id((d: any) => d.id)
-        .distance(150)
-        .strength(0.01) // Reduce the strength of the links
+        .distance(100)
       )
-      .force('charge', d3.forceManyBody()
-        .strength(-200) // Reduce repulsion force
-        .distanceMax(100) // Limit the maximum distance for repulsion
-      )
+      .force('charge', d3.forceManyBody().strength(-100))
       .force('center', d3.forceCenter(width / 2, height / 2))
       .force('collision', d3.forceCollide().radius(60))
-      .alphaDecay(0.05) // Slower decay for smoother transitions
-      .velocityDecay(0.6); // More friction to slow down movement
+      .alphaDecay(0.05)
+      .velocityDecay(0.4);
 
     simulationRef.current = simulation;
 
@@ -84,27 +80,33 @@ const D3NetworkGraph: React.FC<D3NetworkGraphProps> = ({
       .attr('fill', '#4b5563')
       .text(d => d.relation);
 
-    // Create nodes group
+    // Create nodes group with hover events
     const node = g.append('g')
       .selectAll('g')
       .data(nodes)
       .enter().append('g')
+      .attr('class', 'node-group')
+      .style('pointer-events', 'all')
       .call(d3.drag<SVGGElement, Node>()
         .on('start', dragstarted)
         .on('drag', dragged)
         .on('end', dragended)
-      );
+      )
+      .on('mouseover', function(event, d) {
+        setHoveredNode(d.id.toString());
+      })
+      .on('mouseout', function() {
+        setHoveredNode(null);
+      });
 
     // Add circles for nodes
     node.append('circle')
       .attr('r', 20)
       .attr('fill', d => d.type.toLowerCase() === 'person' ? '#3b82f6' : '#ef4444')
-      .on('click', (event, d) => {
+      .on('click', function(event, d) {
         event.stopPropagation();
         onNodeClick(d);
-      })
-      .on('mouseover', (event, d) => setHoveredNode(d.id.toString()))
-      .on('mouseout', () => setHoveredNode(null));
+      });
 
     // Add node images or initials
     node.each(function(d) {
@@ -158,50 +160,76 @@ const D3NetworkGraph: React.FC<D3NetworkGraphProps> = ({
         .attr('transform', d => `translate(${(d as any).x},${(d as any).y})`);
     });
 
-    // Drag functions
+    // Drag behavior with offset handling
+    let dragOffsetX = 0;
+    let dragOffsetY = 0;
+    
     function dragstarted(event: any, d: any) {
-      if (!event.active) simulation.alphaTarget(0.1).restart();
+      // Calculate the offset between mouse and node center
+      dragOffsetX = d.x - event.x;
+      dragOffsetY = d.y - event.y;
+      
       // Fix the node's position
       d.fx = d.x;
       d.fy = d.y;
-      // Reduce the simulation's alpha to minimize movement of other nodes
-      simulation.alpha(0.1);
+      
+      // Lightly activate the simulation
+      if (!event.active) simulation.alphaTarget(0.1).restart();
     }
 
     function dragged(event: any, d: any) {
-      // Update the fixed position of the node
-      d.fx = event.x;
-      d.fy = event.y;
-      // Keep alpha low to prevent other nodes from moving much
-      simulation.alpha(0.1);
+      // Apply the offset to keep the node under the cursor
+      d.fx = event.x + dragOffsetX;
+      d.fy = event.y + dragOffsetY;
     }
 
     function dragended(event: any, d: any) {
+      // Keep the node at its current position
+      d.fx = d.x;
+      d.fy = d.y;
+      
+      // Stop the simulation
       if (!event.active) simulation.alphaTarget(0);
-      // Keep the node at the dragged position
-      d.fx = event.x;
-      d.fy = event.y;
-      // Let the simulation settle
-      simulation.alpha(0.5).restart();
     }
 
-    // Handle hover effects
+      // Handle hover effects - only update styles, not positions
     if (hoveredNode) {
-      link
-        .style('opacity', d => 
-          (d.source as any).id.toString() === hoveredNode || 
-          (d.target as any).id.toString() === hoveredNode ? 1 : 0.3
-        );
+      // Ensure simulation is completely stopped during hover
+      simulation.alphaTarget(0);
+      simulation.alpha(0);
+      // Fix all nodes in their current positions
+      simulation.nodes().forEach(node => {
+        if (!node.fx) node.fx = node.x;
+        if (!node.fy) node.fy = node.y;
+      });
       
+      // Highlight links connected to the hovered node
+      link
+        .style('opacity', d => {
+          const sourceId = (d.source as any)?.id?.toString() || (d.source as any)?.toString();
+          const targetId = (d.target as any)?.id?.toString() || (d.target as any)?.toString();
+          return (sourceId === hoveredNode || targetId === hoveredNode) ? 1 : 0.3;
+        });
+      
+      // Highlight the hovered node and its direct connections
       node
-        .style('opacity', d => 
-          d.id.toString() === hoveredNode || 
-          edges.some(e => 
-            (e.source === d.id || e.target === d.id) && 
-            (e.source.toString() === hoveredNode || e.target.toString() === hoveredNode)
-          ) ? 1 : 0.3
-        );
+        .style('opacity', d => {
+          const nodeId = d.id.toString();
+          if (nodeId === hoveredNode) return 1;
+          
+          // Check if this node is connected to the hovered node
+          return edges.some(e => {
+            const sourceId = (e.source as any)?.id?.toString() || e.source?.toString();
+            const targetId = (e.target as any)?.id?.toString() || e.target?.toString();
+            return (sourceId === hoveredNode && targetId === nodeId) || 
+                   (targetId === hoveredNode && sourceId === nodeId);
+          }) ? 1 : 0.3;
+        });
     } else {
+      // Keep simulation stopped when not hovering
+      simulation.alphaTarget(0);
+      
+      // Reset all opacities
       link.style('opacity', 0.7);
       node.style('opacity', 1);
     }
