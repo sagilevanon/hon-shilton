@@ -1,0 +1,43 @@
+{
+    "name": "Node",
+    "type": "object",
+    "properties": {
+      "node_id": {
+        "type": "string",
+        "description": "Unique identifier for the node"
+      },
+      "name": {
+        "type": "string",
+        "description": "Display name of the node"
+      },
+      "type": {
+        "type": "string",
+        "enum": [
+          "person",
+          "connector"
+        ],
+        "description": "Type of node - person or connector"
+      },
+      "description": {
+        "type": "string",
+        "description": "Detailed description of the node"
+      },
+      "image_url": {
+        "type": "string",
+        "description": "Profile image URL"
+      },
+      "position_x": {
+        "type": "number",
+        "description": "X coordinate for stable positioning"
+      },
+      "position_y": {
+        "type": "number",
+        "description": "Y coordinate for stable positioning"
+      }
+    },
+    "required": [
+      "node_id",
+      "name",
+      "type"
+    ]
+  }
