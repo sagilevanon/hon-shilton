@@ -10,10 +10,11 @@ export interface Edge {
   source: number;
   target: number;
   value?: number;
+  relation: string;
 }
 
 export interface GraphStats {
   persons: number;
-  connectors: number;
+  linkingEntitys: number;
   connections: number;
 }

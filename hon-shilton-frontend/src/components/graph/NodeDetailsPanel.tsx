@@ -62,7 +62,7 @@ export default function NodeDetailsPanel({ node, onClose }: NodeDetailsPanelProp
             <p className="mt-1 text-sm text-gray-900">{node.node_id}</p>
           </div>
 
-          {node.type === 'connector' && node.description && (
+          {node.type === 'linkingEntity' && node.description && (
             <div>
               <h4 className="text-sm font-medium text-gray-500">Description</h4>
               <p className="mt-1 text-sm text-gray-900">{node.description}</p>

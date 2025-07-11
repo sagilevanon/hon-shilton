@@ -34,7 +34,7 @@ body {
   transition: all 0.2s ease;
 }
 
-.node-connector {
+.node-linkingEntity {
   fill: #ef4444; /* red-500 */
   stroke: #b91c1c; /* red-700 */
   stroke-width: 2;

@@ -88,7 +88,7 @@ export default function NodeDetailsPanel({ node, onClose }) {
               </div>
             )}
 
-            {node.type === 'connector' && (
+            {node.type === 'linkingEntity' && (
               <div>
                 <h4 className="font-semibold text-gray-700 mb-2">Function</h4>
                 <p className="text-gray-600">Connection Hub - Links multiple people together</p>

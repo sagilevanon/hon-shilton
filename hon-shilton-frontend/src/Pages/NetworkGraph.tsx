@@ -2,14 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { NodeAPI, EdgeAPI } from '@/services/api';
 import { Node, Edge } from '@/types';
-import NetworkGraph from '../components/graph/NetworkGraph';
+import D3NetworkGraph from '../components/graph/D3NetworkGraph';
 import NodeDetailsPanel from '../components/graph/NodeDetailsPanel';
 import { Button } from "@/components/ui/button";
 import { RefreshCw, Users, Link as LinkIcon } from 'lucide-react';
 
 interface GraphStats {
   persons: number;
-  connectors: number;
+  linkingEntitys: number;
   connections: number;
 }
 
@@ -19,7 +19,7 @@ export default function NetworkGraphPage() {
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [stats, setStats] = useState<GraphStats>({ persons: 0, connectors: 0, connections: 0 });
+  const [stats, setStats] = useState<GraphStats>({ persons: 0, linkingEntitys: 0, connections: 0 });
 
   useEffect(() => {
     console.log('in useEffect')
@@ -49,12 +49,11 @@ export default function NetworkGraphPage() {
       setNodes(processedNodes);
       setEdges(edgesData);
       
-      // Calculate stats - assuming group 4 represents people
-      const persons = processedNodes.filter(n => n.group === 4).length;
-      const connectors = processedNodes.length - persons;
+      const persons = processedNodes.filter(n => n.type === 'person').length;
+      const linkingEntitys = processedNodes.length - persons;
       setStats({ 
         persons, 
-        connectors, 
+        linkingEntitys, 
         connections: edgesData.length 
       });
     } catch (error) {
@@ -103,7 +102,7 @@ export default function NetworkGraphPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <LinkIcon className="w-4 h-4 text-red-500" />
-                  <span className="font-medium">{stats.connectors} Connectors</span>
+                  <span className="font-medium">{stats.linkingEntitys} Connectors</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="w-4 h-4 flex items-center justify-center">
@@ -131,7 +130,7 @@ export default function NetworkGraphPage() {
       {/* Graph Container */}
       <div className="absolute inset-0 pt-20">
         <div className="w-full h-full">
-          <NetworkGraph
+          <D3NetworkGraph
             nodes={nodes}
             edges={edges}
             onNodeClick={handleNodeClick}

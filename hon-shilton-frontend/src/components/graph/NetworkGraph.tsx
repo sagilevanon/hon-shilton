@@ -99,17 +99,39 @@ export default function NetworkGraph({
           
           if (!sourcePos || !targetPos) return null;
           
+          // Calculate midpoint for the relation text
+          const midX = (sourcePos.x + targetPos.x) / 2;
+          const midY = (sourcePos.y + targetPos.y) / 2;
+          
+          // Calculate angle for text rotation
+          const angle = Math.atan2(targetPos.y - sourcePos.y, targetPos.x - sourcePos.x) * 180 / Math.PI;
+          
           return (
-            <line
-              key={`edge-${index}`}
-              x1={sourcePos.x}
-              y1={sourcePos.y}
-              x2={targetPos.x}
-              y2={targetPos.y}
-              stroke="#94a3b8"
-              strokeWidth="2"
-              className={`transition-opacity ${hoveredNode && hoveredNode !== edge.source.toString() && hoveredNode !== edge.target.toString() ? 'opacity-30' : 'opacity-70'}`}
-            />
+            <g key={`edge-${index}`}>
+              <line
+                x1={sourcePos.x}
+                y1={sourcePos.y}
+                x2={targetPos.x}
+                y2={targetPos.y}
+                stroke="#94a3b8"
+                strokeWidth="2"
+                className={`transition-opacity ${hoveredNode && hoveredNode !== edge.source.toString() && hoveredNode !== edge.target.toString() ? 'opacity-30' : 'opacity-70'}`}
+              />
+              <text
+                x={midX}
+                y={midY}
+                textAnchor="middle"
+                className="text-[10px] fill-gray-600 pointer-events-none"
+                transform={`rotate(${angle}, ${midX}, ${midY})`}
+                style={{
+                  transformBox: 'fill-box',
+                  transformOrigin: 'center',
+                  userSelect: 'none'
+                }}
+              >
+                {edge.relation}
+              </text>
+            </g>
           );
         })}
 
@@ -129,7 +151,7 @@ export default function NetworkGraph({
             >
               <circle
                 r={20}
-                fill={node.group === 4 ? '#3b82f6' : '#ef4444'}
+                fill={node.type.toLowerCase() === 'person' ? '#3b82f6' : '#ef4444'}
                 className="shadow-md"
               />
               {node.image ? (

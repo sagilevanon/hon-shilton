@@ -252,7 +252,7 @@ export default function NetworkGraph({ nodes, edges, onNodeClick, hoveredNode, s
                   clipPath="circle(25px at 25px 25px)"
                 />
               )}
-              {node.type === 'connector' && (
+              {node.type === 'linkingEntity' && (
                 <text
                   textAnchor="middle"
                   dy="0.35em"

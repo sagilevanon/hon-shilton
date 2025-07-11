@@ -1,7 +1,7 @@
 export interface Node {
   node_id: string;
   name: string;
-  type: 'person' | 'connector';
+  type: 'person' | 'linkingEntity';
   description?: string;
   image_url?: string;
   position_x?: number;

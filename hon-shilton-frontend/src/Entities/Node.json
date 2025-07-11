@@ -14,9 +14,9 @@
         "type": "string",
         "enum": [
           "person",
-          "connector"
+          "linkingEntity"
         ],
-        "description": "Type of node - person or connector"
+        "description": "Type of node - person or linkingEntity"
       },
       "description": {
         "type": "string",
