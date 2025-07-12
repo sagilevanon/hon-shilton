@@ -3,7 +3,12 @@ import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import { promises as fsPromises } from 'fs';
-import { getNodes, getEdges, getGraphAddition, GraphRequest } from './endpoints';
+import { fileURLToPath } from 'url';
+import { getNodes, getEdges, getGraphAddition, GraphRequest } from './endpoints.js';
+
+// Get the directory path for the current module (ES modules replacement for __dirname)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -18,11 +23,16 @@ let customPath: string | undefined;
 
 async function loadGraphData() {
   try {
-    const data = await fsPromises.readFile(path.join(customPath || __dirname, 'graph.json'), 'utf-8');
+    // Use the custom path if provided, otherwise use the directory where this file is located
+    const graphPath = customPath ? 
+      path.join(customPath, 'graph.json') : 
+      path.join(__dirname, 'graph.json');
+      
+    const data = await fsPromises.readFile(graphPath, 'utf-8');
     graphData = JSON.parse(data);
-    console.log('Graph data loaded successfully');
+    // Graph data loaded successfully
   } catch (error) {
-    console.error('Error loading graph data:', error);
+    console.error(`Error loading graph data from ${customPath || __dirname}:`, error);
     process.exit(1);
   }
 }
@@ -45,7 +55,7 @@ async function startServer(pathArg?: string) {
   await loadGraphData();
   
   app.listen(port, () => {
-    console.log(`Server is running on http://localhost:${port}`);
+    // Server is running on http://localhost:${port}
   });
 }
 

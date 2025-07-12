@@ -2,12 +2,15 @@
   "name": "hon-shilton-backend",
   "version": "1.0.0",
   "description": "Backend for Hon Shilton Network Graph",
+  "type": "module",
   "main": "dist/server/index.js",
   "scripts": {
     "build": "tsc",
+    "clean": "rm -rf dist",
+    "prebuild": "npm run clean",
     "start": "node dist/server/index.js",
     "dev": "tsx watch server/index.ts",
-    "test": "node --test --require ts-node/register test/**/*.ts"
+    "test": "tsx --test test/**/*.ts"
   },
   "dependencies": {
     "cors": "^2.8.5",

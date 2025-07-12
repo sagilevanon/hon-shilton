@@ -1,0 +1,18 @@
+[
+  {
+    "id": 1,
+    "label": "Test Person 1",
+    "type": "person",
+    "image": "person1.jpg"
+  },
+  {
+    "id": 2,
+    "label": "Test Person 2",
+    "type": "person"
+  },
+  {
+    "id": 3,
+    "label": "Test Organization",
+    "type": "organization"
+  }
+]

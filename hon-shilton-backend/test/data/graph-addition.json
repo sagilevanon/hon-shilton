@@ -1,0 +1,28 @@
+{
+  "nodes": [
+    {
+      "id": 4,
+      "label": "Test Person 3",
+      "type": "person"
+    },
+    {
+      "id": 5,
+      "label": "Test Organization 2",
+      "type": "organization"
+    }
+  ],
+  "edges": [
+    {
+      "id": 4,
+      "source": 1,
+      "target": 4,
+      "label": "knows"
+    },
+    {
+      "id": 5,
+      "source": 4,
+      "target": 5,
+      "label": "works at"
+    }
+  ]
+}
