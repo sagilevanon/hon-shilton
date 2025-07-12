@@ -136,7 +136,21 @@ const D3NetworkGraph: React.FC<D3NetworkGraphProps> = ({
             event.stopPropagation();
             onNodeClick(d);
           });
+      } else if (d.type.toLowerCase() === 'person') {
+        // Use silhouette.svg as fallback for person nodes without images
+        nodeGroup.append('image')
+          .attr('x', -20)
+          .attr('y', -20)
+          .attr('width', 40)
+          .attr('height', 40)
+          .attr('xlink:href', '/silhouette.svg')
+          .attr('clip-path', 'circle(20px at center)')
+          .on('click', (event) => {
+            event.stopPropagation();
+            onNodeClick(d);
+          });
       } else {
+        // For non-person nodes without images, use the first letter of the name
         nodeGroup.append('text')
           .attr('text-anchor', 'middle')
           .attr('dy', 5)
