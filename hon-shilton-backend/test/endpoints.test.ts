@@ -11,7 +11,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Import endpoints directly from source
-import { getNodes, getEdges, getGraphAddition, GraphRequest } from '../server/endpoints.ts';
+import { getNodes, getEdges, getGraphAddition, GraphRequest } from '../server/endpoints.js';
 import { setupTestEnvironment, cleanupTestEnvironment } from './helpers.ts';
 
 // Test server and request
@@ -157,9 +157,9 @@ describe('Endpoints Tests', async () => {
     // Create a new app with invalid path
     const appWithInvalidPath = express();
     
-    // Middleware to attach invalid path but set graphData to null
+    // Middleware to attach invalid path
     appWithInvalidPath.use((req: GraphRequest, res, next) => {
-      req.graphData = null;
+      req.graphData = {};
       req.customPath = '/invalid/path';
       next();
     });
