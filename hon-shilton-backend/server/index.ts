@@ -3,6 +3,7 @@ import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import { promises as fsPromises } from 'fs';
+import { getNodes, getEdges, getGraphAddition, GraphRequest } from './endpoints';
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -13,10 +14,11 @@ app.use(express.json());
 
 // Load graph data
 let graphData: any = null;
+let customPath: string | undefined;
 
 async function loadGraphData() {
   try {
-    const data = await fsPromises.readFile(path.join(__dirname, 'graph.json'), 'utf-8');
+    const data = await fsPromises.readFile(path.join(customPath || __dirname, 'graph.json'), 'utf-8');
     graphData = JSON.parse(data);
     console.log('Graph data loaded successfully');
   } catch (error) {
@@ -25,43 +27,21 @@ async function loadGraphData() {
   }
 }
 
+// Middleware to attach graph data and custom path to the request object
+app.use((req: GraphRequest, res, next) => {
+  req.graphData = graphData;
+  req.customPath = customPath;
+  next();
+});
+
 // API endpoints
-app.get('/Nodes', (req, res) => {
-  if (!graphData) {
-    return res.status(503).json({ error: 'Graph data not loaded' });
-  }
-  res.json(graphData.nodes || []);
-});
-
-app.get('/Edges', (req, res) => {
-  if (!graphData) {
-    return res.status(503).json({ error: 'Graph data not loaded' });
-  }
-  res.json(graphData.edges || []);
-});
-
-// Serve graph-addition.json file
-app.get('/graph-addition.json', async (req, res) => {
-  try {
-    const additionalDataPath = path.join(__dirname, 'graph-addition.json');
-    const fileExists = await fsPromises.access(additionalDataPath)
-      .then(() => true)
-      .catch(() => false);
-    
-    if (!fileExists) {
-      return res.status(404).json({ error: 'Additional graph data not found' });
-    }
-    
-    const additionalData = await fsPromises.readFile(additionalDataPath, 'utf8');
-    res.json(JSON.parse(additionalData));
-  } catch (error) {
-    console.error('Error serving additional graph data:', error);
-    res.status(500).json({ error: 'Failed to load additional graph data' });
-  }
-});
+app.get('/Nodes', getNodes);
+app.get('/Edges', getEdges);
+app.get('/graph-addition.json', getGraphAddition);
 
 // Start server
-async function startServer() {
+async function startServer(pathArg?: string) {
+  customPath = pathArg || __dirname;
   await loadGraphData();
   
   app.listen(port, () => {
@@ -69,4 +49,4 @@ async function startServer() {
   });
 }
 
-startServer().catch(console.error);
+startServer(process.argv[2]).catch(console.error);
