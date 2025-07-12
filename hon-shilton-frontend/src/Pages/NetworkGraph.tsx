@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { NodeAPI, EdgeAPI } from '@/services/api';
+import { NodeAPI, EdgeAPI, GraphAPI } from '@/services/api';
 import { Node, Edge } from '@/types';
 import D3NetworkGraph from '../components/graph/D3NetworkGraph';
 import NodeDetailsPanel from '../components/graph/NodeDetailsPanel';
@@ -13,6 +13,11 @@ interface GraphStats {
   connections: number;
 }
 
+interface ExpandableNode {
+  nodeId: string | number;
+  expanded: boolean;
+}
+
 export default function NetworkGraphPage() {
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
@@ -20,6 +25,7 @@ export default function NetworkGraphPage() {
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [stats, setStats] = useState<GraphStats>({ persons: 0, linkingEntitys: 0, connections: 0 });
+  const [expandableNodes, setExpandableNodes] = useState<ExpandableNode[]>([{ nodeId: 10, expanded: false }]);
 
   useEffect(() => {
     console.log('in useEffect')
@@ -70,6 +76,81 @@ export default function NetworkGraphPage() {
 
   const closeDetailsPanel = () => {
     setSelectedNode(null);
+  };
+
+  const handleExpandNode = async (nodeId: string | number) => {
+    console.log('Expanding node:', nodeId);
+    
+    // Check if this node is already expanded
+    const isExpanded = expandableNodes.find(n => n.nodeId === nodeId)?.expanded;
+    if (isExpanded) {
+      console.log('Node already expanded');
+      return;
+    }
+    
+    setIsLoading(true);
+    try {
+      // Fetch additional data from graph-addition.json
+      const additionalData = await GraphAPI.getAdditionalData();
+      console.log('Additional data:', additionalData);
+      
+      // Find the expanding node to use its position as a reference
+      const expandingNode = nodes.find(node => node.id === nodeId);
+      
+      // Merge new nodes and edges with existing ones
+      // Filter out any nodes that already exist in the current graph
+      let newNodes = additionalData.nodes.filter(newNode => 
+        !nodes.some(existingNode => existingNode.id === newNode.id)
+      );
+      
+      // Add initial positions to new nodes based on the expanding node's position
+      // or the center of the graph if expanding node is not found
+      if (expandingNode && (expandingNode as any).x && (expandingNode as any).y) {
+        // Use the expanding node's position as a reference
+        const centerX = (expandingNode as any).x;
+        const centerY = (expandingNode as any).y;
+        
+        // Add initial positions to new nodes with a small random offset
+        newNodes = newNodes.map(node => ({
+          ...node,
+          // Add x and y properties for initial positioning
+          x: centerX + (Math.random() - 0.5) * 100,
+          y: centerY + (Math.random() - 0.5) * 100,
+          // Fix the position initially to prevent them from flying away
+          fx: centerX + (Math.random() - 0.5) * 100,
+          fy: centerY + (Math.random() - 0.5) * 100
+        }));
+      }
+      
+      // Filter out any edges that already exist in the current graph
+      const newEdges = additionalData.edges.filter(newEdge => 
+        !edges.some(existingEdge => 
+          existingEdge.source === newEdge.source && existingEdge.target === newEdge.target
+        )
+      );
+      
+      // Update state with new nodes and edges
+      setNodes(prevNodes => [...prevNodes, ...newNodes]);
+      setEdges(prevEdges => [...prevEdges, ...newEdges]);
+      
+      // Mark this node as expanded
+      setExpandableNodes(prev => 
+        prev.map(n => n.nodeId === nodeId ? { ...n, expanded: true } : n)
+      );
+      
+      // Update stats
+      const updatedPersons = [...nodes, ...newNodes].filter(n => n.type === 'person').length;
+      const updatedLinkingEntitys = [...nodes, ...newNodes].length - updatedPersons;
+      setStats({ 
+        persons: updatedPersons, 
+        linkingEntitys: updatedLinkingEntitys, 
+        connections: [...edges, ...newEdges].length 
+      });
+    } catch (error) {
+      console.error('Error expanding node:', error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   if (isLoading) {
@@ -136,6 +217,8 @@ export default function NetworkGraphPage() {
             onNodeClick={handleNodeClick}
             hoveredNode={hoveredNode}
             setHoveredNode={setHoveredNode}
+            expandableNodes={expandableNodes}
+            onExpandNode={handleExpandNode}
           />
         </div>
       </div>
