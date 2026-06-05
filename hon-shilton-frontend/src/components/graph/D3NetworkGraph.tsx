@@ -60,17 +60,66 @@ const D3NetworkGraph: React.FC<D3NetworkGraphProps> = ({
 
     svg.call(zoom as any);
 
-    // Create the simulation with basic forces
+    // For small graphs with one central node and its connections,
+    // we'll use a simple radial layout with fixed positions
+    const setupInitialPositions = () => {
+      // Position all nodes initially at the center to avoid teleporting
+      nodes.forEach(node => {
+        (node as any).x = width / 2;
+        (node as any).y = height / 2;
+      });
+      
+      // Find the central node (usually id=1)
+      const centralNodeId = 1;
+      const centralNode = nodes.find(n => n.id === centralNodeId);
+      
+      if (centralNode) {
+        // Position central node in the middle
+        (centralNode as any).x = width / 2;
+        (centralNode as any).y = height / 2;
+      }
+      
+      // Get all nodes except the central one
+      const connectedNodes = nodes.filter(n => n.id !== centralNodeId);
+      
+      // Position connected nodes in a circle around the central node
+      if (connectedNodes.length > 0) {
+        const angleStep = (2 * Math.PI) / connectedNodes.length;
+        const radius = 150; // Distance from central node
+        
+        connectedNodes.forEach((node, i) => {
+          const angle = i * angleStep;
+          // Position in a circle around central node
+          (node as any).x = width / 2 + radius * Math.cos(angle);
+          (node as any).y = height / 2 + radius * Math.sin(angle);
+        });
+      }
+    };
+    
+    // Apply initial positions
+    setupInitialPositions();
+    
+    // Create a minimal simulation that just applies the initial positions
+    // without causing much additional movement
     const simulation = d3.forceSimulation(nodes as d3.SimulationNodeDatum[])
+      // Use a very weak link force just to maintain structure
       .force('link', d3.forceLink(edges)
         .id((d: any) => d.id)
-        .distance(100)
+        .distance(150) // Larger distance to spread things out
+        .strength(0.05) // Extremely weak to minimize movement
       )
-      .force('charge', d3.forceManyBody().strength(-100))
-      .force('center', d3.forceCenter(width / 2, height / 2))
+      // Almost no charge force
+      .force('charge', d3.forceManyBody().strength(-10))
+      // Very weak center force
+      .force('center', d3.forceCenter(width / 2, height / 2).strength(0.01))
+      // Prevent overlap
       .force('collision', d3.forceCollide().radius(60))
-      .alphaDecay(0.05)
-      .velocityDecay(0.4);
+      // Very quick decay to stop simulation almost immediately
+      .alphaDecay(0.3)
+      // Maximum damping for stability
+      .velocityDecay(0.9)
+      // Start with low alpha to minimize initial movement
+      .alpha(0.1);
 
     simulationRef.current = simulation;
 
@@ -224,36 +273,45 @@ const D3NetworkGraph: React.FC<D3NetworkGraphProps> = ({
         .attr('transform', d => `translate(${(d as any).x},${(d as any).y})`);
     });
 
-    // Drag behavior with offset handling
-    let dragOffsetX = 0;
-    let dragOffsetY = 0;
-    
+    // Improved drag behavior for smoother node movement
     function dragstarted(event: any, d: any) {
-      // Calculate the offset between mouse and node center
-      dragOffsetX = d.x - event.x;
-      dragOffsetY = d.y - event.y;
-      
-      // Fix the node's position
+      // Immediately fix the node at its current position
+      // This prevents any initial jump when starting to drag
       d.fx = d.x;
       d.fy = d.y;
       
-      // Lightly activate the simulation
-      if (!event.active) simulation.alphaTarget(0.1).restart();
+      // Stop the simulation completely during drag
+      simulation.alphaTarget(0);
+      simulation.alpha(0);
+      
+      // Fix all other nodes in place during dragging to prevent unwanted movement
+      simulation.nodes().forEach((node: any) => {
+        if (node !== d) {
+          node.fx = node.x;
+          node.fy = node.y;
+        }
+      });
     }
 
     function dragged(event: any, d: any) {
-      // Apply the offset to keep the node under the cursor
-      d.fx = event.x + dragOffsetX;
-      d.fy = event.y + dragOffsetY;
+      // Direct position setting for the dragged node
+      // This gives the most precise control with no lag
+      d.fx = event.x;
+      d.fy = event.y;
+      
+      // Update the node's actual position to match the fixed position
+      // This ensures consistency between fx/fy and x/y
+      d.x = event.x;
+      d.y = event.y;
     }
 
     function dragended(event: any, d: any) {
-      // Keep the node at its current position
+      // Keep the node fixed at its final position
       d.fx = d.x;
       d.fy = d.y;
       
-      // Stop the simulation
-      if (!event.active) simulation.alphaTarget(0);
+      // Make sure simulation stays stopped
+      simulation.alphaTarget(0);
     }
 
     // Handle hover effects - only update styles, not positions
