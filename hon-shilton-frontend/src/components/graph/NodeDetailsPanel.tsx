@@ -31,9 +31,9 @@ export default function NodeDetailsPanel({ node, onClose }: NodeDetailsPanelProp
 
       <div className="p-6 space-y-6">
         <div className="text-center">
-          {node.type === 'person' && node.image_url ? (
+          {node.type === 'person' && node.image ? (
             <img
-              src={node.image_url}
+              src={node.image}
               alt={node.name}
               className="w-24 h-24 rounded-full mx-auto mb-4 object-cover ring-4 ring-blue-100"
             />
@@ -59,7 +59,7 @@ export default function NodeDetailsPanel({ node, onClose }: NodeDetailsPanelProp
         <div className="space-y-4">
           <div>
             <h4 className="text-sm font-medium text-gray-500">Node ID</h4>
-            <p className="mt-1 text-sm text-gray-900">{node.node_id}</p>
+            <p className="mt-1 text-sm text-gray-900">{node.id}</p>
           </div>
 
           {node.type === 'linkingEntity' && node.description && (

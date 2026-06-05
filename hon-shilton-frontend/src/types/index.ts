@@ -4,6 +4,7 @@ export interface Node {
   group: number;
   type: string;
   image?: string;
+  description?: string;
 }
 
 export interface Edge {
