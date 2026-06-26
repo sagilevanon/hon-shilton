@@ -77,6 +77,8 @@ The thinnest end-to-end path through every layer. A backend CLI takes **one hard
 
 ## Phase 2: Feed-scale ingestion + caching
 
+> **Status: DONE** (branch `phase-1-tracer-bullet`). `ingest-feed.ts` batch-ingests the ynet RSS feed (`rss.ts` parses 30 live items, splitting `<tags>` as entity hints). A shared dependency-injected core (`pipeline.ts` `ingestOne` + `feed.ts` `runFeed`) drives both CLIs; premium/cached/failed items are recorded and skipped, a per-item extraction failure no longer aborts the run, and `--delay-ms` rate-limits between fetches. Live smoke test confirmed fetch → cache → cache-skip on re-run; tsc + 11 `node --test` cases pass.
+
 **User stories**: US-1
 
 ### What to build
@@ -92,6 +94,8 @@ Generalize ingestion from one hardcoded URL to the **ynet RSS feed** (`https://w
 ---
 
 ## Phase 3: Entity resolution & corroboration
+
+> **Status: DONE** (branch `phase-1-tracer-bullet`). Resolution is QID-first, canonical-name-second, **alias-third** (`resolveEntity` in `db.ts`, alias match used only when it maps to a single entity), with aliases merged onto the matched node. `findOrCreateEdge` normalizes **undirected/symmetric** edges to `(min, max)` so the same pair reported in either direction collapses onto one row; corroboration = distinct `edge_sources`. The frontend renders edge stroke-width proportional to corroboration (`corroborationWidth(value)`). Verified end-to-end: two articles naming the same figure (QID + alias) resolve to one node, a relation from two outlets is one edge with two sources, and a symmetric relation in opposite directions collapses to a single undirected edge — no duplicate `(src,tgt,relation)` rows. tsc + 13 `node --test` cases pass.
 
 **User stories**: US-6
 
@@ -109,6 +113,8 @@ Make accumulation **coherent**. On insert, resolve each entity **QID-first, cano
 
 ## Phase 4: Review gate + queue
 
+> **Status: DONE, behind a feature flag** (branch `phase-1-tracer-bullet`). The whole gate is toggled by the backend `REVIEW_GATE` env var, **default off**. **On:** freshly extracted edges stay `proposed` and the public graph serves **approved edges only** (`/Edges` → `status='approved'`; `/Nodes` → only approved-connected entities); **off (default):** the graph shows extracted edges directly (`status != 'rejected'`, so auto-rejected ones still stay hidden). The backend gained `GET /config` (`{reviewGate}`, so the frontend hides the review link when off) and two write endpoints — `GET /review/queue?limit=&offset=` (paged proposed edges with entity names, relation, outlet, quote; gate-independent) and `POST /review/:edgeId {action:'approve'|'reject'}` (`graphStore.setEdgeStatus`, typed-guard validated) — plus a minimal decoupled `Pages/Review.tsx` table (Approve/Reject + paging). Phase 5's verification **auto-rejects** unsupported edges so the human only ever sees plausible ones. Verified live (curl) both modes: gate-off shows proposed edges + `/config` false; gate-on hides them until approval, queue lists proposals, approve→in / reject→out, bad action 400 / unknown id 404. tsc clean across all three packages; 15 pipeline + 12 backend `node --test` cases pass.
+
 **User stories**: US-5
 
 ### What to build
@@ -125,6 +131,8 @@ Introduce the **human-review gate**. Newly extracted edges land as `status='prop
 
 ## Phase 5: Verification pass (anti-hallucination)
 
+> **Status: DONE** (branch `phase-1-tracer-bullet`). A distinct, independently-runnable stage (`npm run verify`) makes a **second Claude call** per extracted edge (`verify.ts`), checking whether the supporting quote actually backs the stated relation/direction (catches denials, swapped direction, wrong pair). Each edge is marked `verification = supported | unsupported` (`runVerification` in `verification.ts`, DI'd verifier, per-edge error isolation, idempotent over `unchecked` edges; `--force` re-checks all). Edges with no quote are auto-marked `unsupported`. Unsupported edges are **auto-rejected** (`status='rejected'`) so they never reach the Phase-4 review queue — keeping the reviewer's load to the minimum. The single headless-Claude spawn/parse is now shared by extraction and verification (`claude.ts`). tsc + 15 pipeline / 8 backend `node --test` cases pass; fixture smoke run verified end-to-end + idempotency on the live DB.
+
 **User stories**: US-7
 
 ### What to build
@@ -139,6 +147,8 @@ Add a **second Claude call** that, for each extracted relation, checks whether i
 ---
 
 ## Phase 6: Egocentric search + lazy expansion
+
+> **Status: DONE** (branch `phase-1-tracer-bullet`). Backend gained `GET /search?q=` (name/alias match in the visible-graph scope, ranked by degree; empty `q` browses top-degree entities) and `GET /neighbors/:id?limit=N` (focal + 1-hop neighbors, capped, ranked **corroboration → confidence → recency**, returning `{nodes, edges, focalId, shown, total}`). The frontend was rebuilt into a search-first egocentric explorer: a landing hero with debounced autocomplete + suggestion chips → selecting an entity renders the focal node + its neighbors → any node is expandable on demand, accumulating `{nodes, edges}` and a per-node `meta(shown,total)` map; `total>shown` drives a "+N" / "show more" expander. The whole graph is never bulk-loaded. Rewrote `D3NetworkGraph.tsx` (gradient nodes, directed arrowheads, corroboration-weighted links, focal ring, zoom-to-fit, position memory). Backend `tsc` clean + 22 `node --test` cases (9 new for search/neighbors covering alias match, degree ranking, capping, visible scope, orphan, 503); frontend `tsc` + `vite build` clean; 6 Playwright E2E cases green.
 
 **User stories**: US-2, US-3
 
@@ -155,6 +165,8 @@ Deliver the headline UX. The app opens to a **search-first** entry: the reader s
 ---
 
 ## Phase 7: Provenance & taxonomy UX
+
+> **Status: DONE** (branch `phase-1-tracer-bullet`). The backend now returns the credibility layer the public payload had been dropping: `/Nodes`, `/search`, and `/neighbors` carry each entity's `qid` + `aliases[]`, and `/Edges` + `/neighbors` carry each edge's `category`. The frontend renders the whole thing — a shared `lib/graph.ts` maps the six categories to colors/DOM-safe ids; `D3NetworkGraph` colors edges + per-category arrowheads by category and adds a transparent hit-line so thin edges are clickable; a new `EdgeDetailsPanel` slides in on edge-click showing the category chip, the relation statement, and one source card per `edge_sources` row (outlet `[ynet]` chip linking to the article, published date, exact quote — multi-source edges show multiple chips); a new `CategoryFilter` (bottom-left, replacing the old Legend) toggles edge visibility per category with live counts; `NodeDetailsPanel` gained aliases chips + a linked Wikidata QID; `Pages/Review.tsx` was rebuilt fully RTL/Hebrew on the paper aesthetic with category chips; and `index.html` is now `lang="he" dir="rtl"`. Backend tsc clean + 23 `node --test` cases (new case for category on edges, plus qid/aliases assertions folded into the existing node/search tests); frontend tsc + `vite build` clean; Playwright green — 5 Phase-6 regression + 3 new Phase-7 (edge→sources panel with link+quote, category-filter hides edges, node-panel aliases/QID), the old "provenance not yet surfaced" PROBE flipped to a positive assertion.
 
 **User stories**: US-4, US-8
 

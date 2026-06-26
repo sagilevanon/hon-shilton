@@ -2,13 +2,12 @@
 // JSON-LD (schema.org Article). No fragile DOM scraping — ynet embeds an
 // `articleBody`. Premium/paywalled articles are detected and skipped.
 
+import { ArticleStatus } from './article-status.js';
+import { fetchText } from './http.js';
 import type { ArticleInput } from './types.js';
 
-const USER_AGENT = 'Mozilla/5.0 (HonShilton research bot; +contact: admin@wotch.health)';
-const TIMEOUT_MS = 25_000;
-
 export interface FetchResult {
-  status: 'ok' | 'premium_skipped' | 'error';
+  status: ArticleStatus;
   article?: ArticleInput;
   reason?: string;
 }
@@ -16,22 +15,19 @@ export interface FetchResult {
 export async function fetchArticle(url: string, opts?: { tags?: string[] }): Promise<FetchResult> {
   let html: string;
   try {
-    const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT }, signal: AbortSignal.timeout(TIMEOUT_MS) });
-    if (!res.ok) return { status: 'error', reason: `HTTP ${res.status}` };
-    html = await res.text();
+    html = await fetchText(url);
   } catch (err) {
-    return { status: 'error', reason: (err as Error).message };
+    return { status: ArticleStatus.Error, reason: (err as Error).message };
   }
-
   return parseArticle(html, url, opts);
 }
 
 // Pure parser (no network): pull the article out of page HTML via JSON-LD.
 export function parseArticle(html: string, url: string, opts?: { tags?: string[] }): FetchResult {
   const ld = extractArticleLd(html);
-  if (!ld) return { status: 'error', reason: 'no JSON-LD Article block found' };
-  if (isPremium(ld)) return { status: 'premium_skipped', reason: 'isAccessibleForFree=false' };
-  if (!ld.articleBody) return { status: 'premium_skipped', reason: 'no articleBody (likely premium/locked)' };
+  if (!ld) return { status: ArticleStatus.Error, reason: 'no JSON-LD Article block found' };
+  if (isPremium(ld)) return { status: ArticleStatus.PremiumSkipped, reason: 'isAccessibleForFree=false' };
+  if (!ld.articleBody) return { status: ArticleStatus.PremiumSkipped, reason: 'no articleBody (likely premium/locked)' };
 
   const article: ArticleInput = {
     url,
@@ -42,7 +38,7 @@ export function parseArticle(html: string, url: string, opts?: { tags?: string[]
     author: authorName(ld.author),
     tags: opts?.tags,
   };
-  return { status: 'ok', article };
+  return { status: ArticleStatus.Ok, article };
 }
 
 // --- JSON-LD helpers ---

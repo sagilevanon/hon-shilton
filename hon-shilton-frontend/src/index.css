@@ -3,22 +3,49 @@
 @tailwind utilities;
 
 :root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
+  /* Reading Room — warm paper documents on a cold dark archival desk. */
+  --ground: #0f1e1b;
+  --ground-2: #0a1513;
+  --paper: #f4efe4;
+  --paper-edge: #e2d9c4;
+  --ink: #1b160f;
+  --ink-soft: #6a6354;
+  --bone: #e8e0cf;
+  --bone-soft: #9b9580;
+  --stamp: #c8102e;
+  --brass: #c2a14d;
+  --brass-line: rgba(194, 161, 77, 0.38);
+
+  /* Names kept for D3 + Playwright selectors; values retuned for this identity. */
+  --focal: var(--stamp);
+  --person: #ece3cd;
+  --org: #b89150;
+  --accent: #c8102e;
+
+  --font-display: 'Frank Ruhl Libre', 'David Libre', Georgia, 'Times New Roman', serif;
+  --font-ui: 'Assistant', 'Heebo', system-ui, -apple-system, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', monospace;
+
+  font-family: var(--font-ui);
+  line-height: 1.55;
+  color: var(--bone);
+  color-scheme: dark;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
+* {
+  box-sizing: border-box;
+}
+
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  color: #1f2937; /* gray-800 */
+  color: var(--bone);
+  background: var(--ground);
 }
 
 #root {
@@ -26,56 +53,157 @@ body {
   height: 100vh;
 }
 
-/* Node styling */
-.node-person {
-  fill: #3b82f6; /* blue-500 */
-  stroke: #1d4ed8; /* blue-700 */
-  stroke-width: 2;
-  transition: all 0.2s ease;
+/* The desk: a warm lamp glow up top, a vignette pulling the edges into the dark,
+   and a faint grain so it reads as a surface rather than flat fill. */
+.hs-canvas {
+  background-color: var(--ground);
+  background-image:
+    radial-gradient(900px 520px at 50% -6%, rgba(194, 161, 77, 0.12), transparent 60%),
+    radial-gradient(130% 120% at 50% 42%, transparent 52%, rgba(0, 0, 0, 0.55) 100%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+  background-size: auto, auto, 180px 180px;
 }
 
-.node-linkingEntity {
-  fill: #ef4444; /* red-500 */
-  stroke: #b91c1c; /* red-700 */
-  stroke-width: 2;
-  transition: all 0.2s ease;
+.hs-landing {
+  background-color: var(--ground);
+  background-image:
+    radial-gradient(800px 560px at 50% -10%, rgba(194, 161, 77, 0.13), transparent 58%),
+    radial-gradient(130% 130% at 50% 50%, transparent 48%, rgba(0, 0, 0, 0.6) 100%);
 }
 
-.node-hovered {
-  filter: drop-shadow(0 0 8px rgba(59, 130, 246, 0.7));
-  transform: scale(1.1);
+/* Warm paper: every readable card (landing sheet, detail file, dropdown). */
+.hs-paper {
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--paper-edge);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.5) inset,
+    0 24px 48px -20px rgba(0, 0, 0, 0.65),
+    0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
-/* Edge styling */
-.link {
-  stroke: #9ca3af; /* gray-400 */
-  stroke-opacity: 0.6;
-  stroke-width: 2;
-  transition: all 0.2s ease;
+/* Floating chrome on the desk: dark, frosted, hairline-brass. */
+.hs-chrome {
+  background: rgba(13, 26, 23, 0.74);
+  backdrop-filter: saturate(140%) blur(12px);
+  -webkit-backdrop-filter: saturate(140%) blur(12px);
+  border: 1px solid var(--brass-line);
+  box-shadow: 0 14px 32px -18px rgba(0, 0, 0, 0.7);
 }
 
-.link-hovered {
-  stroke: #3b82f6; /* blue-500 */
-  stroke-opacity: 1;
-  stroke-width: 3;
+.hs-display {
+  font-family: var(--font-display);
+}
+.hs-mono {
+  font-family: var(--font-mono);
+  font-feature-settings: 'tnum' 1;
+}
+.hs-rtl {
+  direction: rtl;
+  text-align: right;
 }
 
-/* Scrollbar styling */
+/* A stamped classification line — mono, letter-spaced, inked in press red. */
+.hs-suggest:hover {
+  border-color: var(--brass) !important;
+  background: rgba(194, 161, 77, 0.12);
+}
+
+.hs-stamp {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--stamp);
+  border: 1.5px solid var(--stamp);
+  border-radius: 3px;
+  padding: 4px 10px;
+}
+
+/* Graph primitives — geometry is set imperatively by D3; this is just texture. */
+.hs-node {
+  cursor: pointer;
+}
+.hs-node circle.body {
+  transition:
+    stroke 0.18s ease,
+    stroke-width 0.18s ease;
+}
+.hs-node text.label {
+  font-family: var(--font-display);
+  font-weight: 700;
+  fill: var(--bone);
+  paint-order: stroke;
+  stroke: var(--ground);
+  stroke-width: 4.5px;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+.hs-link {
+  transition: stroke-opacity 0.18s ease;
+}
+.hs-link-label {
+  font-family: var(--font-ui);
+  font-size: 10.5px;
+  font-weight: 600;
+  fill: var(--bone-soft);
+  paint-order: stroke;
+  stroke: var(--ground);
+  stroke-width: 3.5px;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+.hs-reticle {
+  stroke: var(--stamp);
+  stroke-width: 1.5;
+  pointer-events: none;
+}
+.hs-expander {
+  cursor: pointer;
+}
+.hs-expander circle {
+  transition: fill 0.15s ease;
+}
+.hs-expander:hover circle {
+  fill: #a50d25;
+}
+
+@keyframes hs-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.hs-fade-up {
+  animation: hs-fade-up 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
-
 ::-webkit-scrollbar-track {
-  background: #f1f1f1;
-  border-radius: 4px;
+  background: transparent;
 }
-
 ::-webkit-scrollbar-thumb {
-  background: #9ca3af; /* gray-400 */
-  border-radius: 4px;
+  background: var(--brass-line);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--brass);
+  background-clip: padding-box;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: #6b7280; /* gray-500 */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

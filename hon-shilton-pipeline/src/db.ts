@@ -3,6 +3,9 @@
 // swapped for better-sqlite3 / a cloud libSQL later without touching callers.
 
 import {DatabaseSync} from 'node:sqlite';
+import {ArticleStatus} from './article-status.js';
+import {Verification} from './verification-status.js';
+import {EdgeStatus} from './edge-status.js';
 import type {ArticleInput, ExtractedEntity, SourceInput} from './types.js';
 
 export type DB = DatabaseSync;
@@ -69,11 +72,13 @@ CREATE TABLE IF NOT EXISTS articles (
 export function openDb(path: string): DB {
   const db = new DatabaseSync(path);
   db.exec('PRAGMA foreign_keys = ON;');
+  // WAL so the backend can keep reading the served graph while ingestion writes;
+  // busy_timeout absorbs the brief lock contention between the two processes.
+  db.exec('PRAGMA journal_mode = WAL;');
+  db.exec('PRAGMA busy_timeout = 5000;');
   db.exec(SCHEMA);
   return db;
 }
-
-export type ArticleStatus = 'ok' | 'premium_skipped' | 'error';
 
 export function cacheArticle(db: DB, a: ArticleInput, status: ArticleStatus): void {
   db.prepare(
@@ -87,20 +92,31 @@ export function cacheArticle(db: DB, a: ArticleInput, status: ArticleStatus): vo
 }
 
 export function isArticleCached(db: DB, url: string): boolean {
-  const row = db.prepare("SELECT url FROM articles WHERE url = ? AND status = 'ok'").get(url);
+  const row = db.prepare('SELECT url FROM articles WHERE url = ? AND status = ?').get(url, ArticleStatus.Ok);
   return !!row;
 }
 
-// Resolve an entity QID-first, canonical-name-second; insert if new; merge aliases.
-// (Phase 1 keeps this minimal; Phase 3 hardens cross-article resolution.)
-export function upsertEntity(db: DB, e: ExtractedEntity): number {
-  let row: {id: number} | undefined;
-  if (e.qid) row = db.prepare('SELECT id FROM entities WHERE qid = ?').get(e.qid) as {id: number} | undefined;
-  if (!row) {
-    row = db.prepare('SELECT id FROM entities WHERE canonical_name = ?').get(e.canonical_name) as
-      | {id: number}
-      | undefined;
+function resolveEntity(db: DB, e: ExtractedEntity): {id: number} | undefined {
+  if (e.qid) {
+    const byQid = db.prepare('SELECT id FROM entities WHERE qid = ?').get(e.qid) as {id: number} | undefined;
+    if (byQid) return byQid;
   }
+  const byName = db.prepare('SELECT id FROM entities WHERE canonical_name = ?').get(e.canonical_name) as
+    | {id: number}
+    | undefined;
+  if (byName) return byName;
+
+  const byAlias = db
+    .prepare('SELECT entity_id AS id FROM aliases WHERE alias = ? LIMIT 2')
+    .all(e.canonical_name) as {id: number}[];
+  return byAlias.length === 1 ? byAlias[0] : undefined;
+}
+
+// Resolve an entity QID-first, canonical-name-second, alias-third (only when the
+// alias maps to a single entity); insert if new; merge aliases. This is what keeps
+// one real person on one node as it recurs across articles.
+export function upsertEntity(db: DB, e: ExtractedEntity): number {
+  const row = resolveEntity(db, e);
 
   let id: number;
   if (row) {
@@ -136,10 +152,14 @@ export interface EdgeInput {
 
 // Find-or-create the edge keyed on (src, tgt, relation), so a repeated relation
 // from another article reuses the row and just gains a source (corroboration).
+// Undirected (symmetric) edges are normalized to (min, max) so the same pair
+// reported in either direction collapses onto one row.
 export function findOrCreateEdge(db: DB, p: EdgeInput): number {
+  const [src, tgt] = p.directed ? [p.src, p.tgt] : [Math.min(p.src, p.tgt), Math.max(p.src, p.tgt)];
+
   const existing = db
     .prepare('SELECT id FROM edges WHERE src_entity_id = ? AND tgt_entity_id = ? AND relation = ?')
-    .get(p.src, p.tgt, p.relation) as {id: number} | undefined;
+    .get(src, tgt, p.relation) as {id: number} | undefined;
   if (existing) return Number(existing.id);
 
   const res = db
@@ -147,7 +167,7 @@ export function findOrCreateEdge(db: DB, p: EdgeInput): number {
       `INSERT INTO edges (src_entity_id, tgt_entity_id, relation, category, raw_phrase, directed, confidence)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(p.src, p.tgt, p.relation, p.category, p.raw_phrase ?? null, p.directed ? 1 : 0, p.confidence);
+    .run(src, tgt, p.relation, p.category, p.raw_phrase ?? null, p.directed ? 1 : 0, p.confidence);
   return Number(res.lastInsertRowid);
 }
 
@@ -156,6 +176,53 @@ export function addSource(db: DB, edgeId: number, s: SourceInput): void {
     `INSERT OR IGNORE INTO edge_sources (edge_id, url, outlet, published_date, quote)
      VALUES (?, ?, ?, ?, ?)`,
   ).run(edgeId, s.url, s.outlet, s.publishedDate ?? null, s.quote ?? null);
+}
+
+export interface VerificationRow {
+  id: number;
+  source: string;
+  target: string;
+  relation: string;
+  directed: number;
+  quote: string | null;
+}
+
+// Edges awaiting a verification verdict, with their entity names and one
+// representative supporting quote. By default only 'unchecked' edges (so the
+// stage is idempotent / resumable); `force` re-checks every edge.
+export function getEdgesToVerify(db: DB, force: boolean, limit?: number): VerificationRow[] {
+  const params: (string | number)[] = [];
+  let where = '';
+  if (!force) {
+    where = 'WHERE e.verification = ?';
+    params.push(Verification.Unchecked);
+  }
+  let lim = '';
+  if (limit != null) {
+    lim = ' LIMIT ?';
+    params.push(Number(limit));
+  }
+  return db
+    .prepare(
+      `SELECT e.id, e.relation, e.directed,
+              src.canonical_name AS source, tgt.canonical_name AS target,
+              (SELECT s.quote FROM edge_sources s
+                 WHERE s.edge_id = e.id AND s.quote IS NOT NULL AND s.quote != '' LIMIT 1) AS quote
+       FROM edges e
+       JOIN entities src ON src.id = e.src_entity_id
+       JOIN entities tgt ON tgt.id = e.tgt_entity_id
+       ${where}
+       ORDER BY e.id${lim}`,
+    )
+    .all(...params) as unknown as VerificationRow[];
+}
+
+export function setVerification(db: DB, edgeId: number, v: Verification): void {
+  db.prepare('UPDATE edges SET verification = ? WHERE id = ?').run(v, edgeId);
+}
+
+export function setEdgeStatus(db: DB, edgeId: number, status: EdgeStatus): void {
+  db.prepare('UPDATE edges SET status = ? WHERE id = ?').run(status, edgeId);
 }
 
 // Read the graph in the shape the existing D3 frontend expects:
@@ -179,6 +246,7 @@ export interface GraphEdge {
   category: string;
   confidence: string;
   status: string;
+  verification: string;
   directed: boolean;
   value: number; // corroboration = number of sources
   sources: SourceInput[];
@@ -193,7 +261,7 @@ export function getGraph(db: DB): {nodes: GraphNode[]; edges: GraphEdge[]} {
   const edgeRows = db
     .prepare(
       `SELECT e.id, e.src_entity_id AS source, e.tgt_entity_id AS target, e.relation, e.category,
-              e.confidence, e.status, e.directed, COUNT(s.id) AS value
+              e.confidence, e.status, e.verification, e.directed, COUNT(s.id) AS value
        FROM edges e LEFT JOIN edge_sources s ON s.edge_id = e.id
        GROUP BY e.id`,
     )

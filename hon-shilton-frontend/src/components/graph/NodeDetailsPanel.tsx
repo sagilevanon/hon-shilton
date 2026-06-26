@@ -1,90 +1,109 @@
-import React from 'react';
+import { motion } from 'framer-motion';
 import { Node } from '@/types';
-import { X, User, Link as LinkIcon } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { X, User, Building2, Share2, ExternalLink } from 'lucide-react';
 
 interface NodeDetailsPanelProps {
-  node: Node | null;
+  node: Node;
   onClose: () => void;
+  onExpand: (id: number) => void;
 }
 
-export default function NodeDetailsPanel({ node, onClose }: NodeDetailsPanelProps) {
-  if (!node) return null;
+const isPerson = (t: string) => t.toLowerCase() === 'person';
+
+export default function NodeDetailsPanel({ node, onClose, onExpand }: NodeDetailsPanelProps) {
+  const person = isPerson(node.type);
+  const tone = person ? 'var(--ink)' : 'var(--brass)';
+  const aliases = node.aliases ?? [];
 
   return (
-    <div className="fixed right-0 top-0 h-full w-96 bg-white shadow-lg z-50 overflow-y-auto">
-      <div className="p-6 border-b border-gray-200">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold text-gray-900">
-            {node.type === 'person' ? 'Person Details' : 'Connector Details'}
-          </h2>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600"
+    <motion.aside
+      initial={{ x: 360, opacity: 0 }}
+      animate={{ x: 0, opacity: 1 }}
+      exit={{ x: 360, opacity: 0 }}
+      transition={{ type: 'spring', stiffness: 320, damping: 34 }}
+      className="hs-paper hs-rtl fixed bottom-6 right-6 top-24 z-40 flex w-80 flex-col overflow-hidden rounded-2xl"
+    >
+      <div
+        className="flex items-center justify-between px-5 py-3"
+        style={{ borderBottom: '1px solid var(--paper-edge)', background: 'rgba(27,22,15,0.03)' }}
+      >
+        <span className="hs-mono text-[11px] uppercase tracking-[0.18em]" style={{ color: 'var(--ink-soft)' }}>
+          תיק · {person ? 'PERSON' : 'ORG'}
+        </span>
+        <button
+          onClick={onClose}
+          className="rounded-md p-1 transition-colors hover:bg-black/5"
+          style={{ color: 'var(--ink-soft)' }}
+          aria-label="סגירה"
+        >
+          <X className="h-[18px] w-[18px]" />
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+        <div className="px-6 pt-6 text-center">
+          <div
+            className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-xl"
+            style={{ background: tone, color: 'var(--paper)' }}
           >
-            <X className="w-5 h-5" />
-          </Button>
+            {person ? <User className="h-8 w-8" /> : <Building2 className="h-8 w-8" />}
+          </div>
+          <h2 className="hs-display text-2xl font-bold leading-tight" style={{ color: 'var(--ink)' }}>
+            {node.name}
+          </h2>
+          {node.description && (
+            <p className="mt-2.5 text-sm leading-relaxed" style={{ color: 'var(--ink-soft)' }}>
+              {node.description}
+            </p>
+          )}
         </div>
-      </div>
 
-      <div className="p-6 space-y-6">
-        <div className="text-center">
-          {node.type === 'person' && node.image ? (
-            <img
-              src={node.image}
-              alt={node.name}
-              className="w-24 h-24 rounded-full mx-auto mb-4 object-cover ring-4 ring-blue-100"
-            />
-          ) : (
-            <div
-              className={`w-24 h-24 rounded-full mx-auto mb-4 flex items-center justify-center ${
-                node.type === 'person' ? 'bg-blue-500' : 'bg-red-500'
-              }`}
+        {aliases.length > 0 && (
+          <div className="mt-5 px-6">
+            <div className="hs-mono mb-2 text-[10px] uppercase tracking-[0.18em]" style={{ color: 'var(--ink-soft)' }}>
+              ידוע גם כ
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {aliases.map((a) => (
+                <span
+                  key={a}
+                  dir="auto"
+                  className="rounded-md px-2 py-0.5 text-xs font-semibold"
+                  style={{ background: 'rgba(27,22,15,0.06)', color: 'var(--ink)' }}
+                >
+                  {a}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {node.qid && (
+          <div className="mt-5 px-6">
+            <a
+              href={`https://www.wikidata.org/wiki/${node.qid}`}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 text-sm font-semibold transition-opacity hover:opacity-80"
+              style={{ color: 'var(--stamp)' }}
             >
-              {node.type === 'person' ? (
-                <User className="w-12 h-12 text-white" />
-              ) : (
-                <LinkIcon className="w-12 h-12 text-white" />
-              )}
-            </div>
-          )}
-          <h3 className="text-lg font-semibold text-gray-900">{node.name}</h3>
-          {node.type === 'person' && (
-            <p className="text-sm text-gray-500">{node.description || 'No description available'}</p>
-          )}
-        </div>
-
-        <div className="space-y-4">
-          <div>
-            <h4 className="text-sm font-medium text-gray-500">Node ID</h4>
-            <p className="mt-1 text-sm text-gray-900">{node.id}</p>
+              <ExternalLink className="h-3.5 w-3.5" />
+              ויקינתונים · {node.qid}
+            </a>
           </div>
-
-          {node.type === 'linkingEntity' && node.description && (
-            <div>
-              <h4 className="text-sm font-medium text-gray-500">Description</h4>
-              <p className="mt-1 text-sm text-gray-900">{node.description}</p>
-            </div>
-          )}
-
-          <div>
-            <h4 className="text-sm font-medium text-gray-500">Type</h4>
-            <div className="mt-1">
-              <span
-                className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                  node.type === 'person'
-                    ? 'bg-blue-100 text-blue-800'
-                    : 'bg-red-100 text-red-800'
-                }`}
-              >
-                {node.type.charAt(0).toUpperCase() + node.type.slice(1)}
-              </span>
-            </div>
-          </div>
-        </div>
+        )}
       </div>
-    </div>
+
+      <div className="p-5">
+        <button
+          onClick={() => onExpand(node.id)}
+          className="flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3 text-sm font-bold text-white transition-transform active:scale-[0.99]"
+          style={{ background: 'var(--stamp)' }}
+        >
+          <Share2 className="h-4 w-4" />
+          הרחבת הקשרים של צומת זה
+        </button>
+      </div>
+    </motion.aside>
   );
 }

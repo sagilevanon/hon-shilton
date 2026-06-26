@@ -1,16 +1,10 @@
-// Extraction: turn an article into structured entities + relations by calling
-// Claude Code HEADLESSLY (no Anthropic API SDK, no API key — uses the local
-// `claude` login). Verified against claude v2.1.x:
-//   claude -p "<prompt>" --output-format json --json-schema <schema> \
-//          --append-system-prompt "<instructions>" --model opus
-// The validated object comes back in the envelope's `structured_output` field.
+// Extraction: turn an article into structured entities + relations with one
+// headless Claude Code call (see `claude.ts`). The validated object comes back
+// in the envelope's `structured_output` field.
 
-import { spawn } from 'node:child_process';
+import { runClaude } from './claude.js';
 import { CATEGORIES, CONFIDENCE, RELATION_VOCAB } from './taxonomy.js';
 import type { ArticleInput, ExtractionResult } from './types.js';
-
-const MODEL = process.env.GRAPH_EXTRACT_MODEL ?? 'opus';
-const TIMEOUT_MS = Number(process.env.GRAPH_EXTRACT_TIMEOUT_MS ?? 360_000);
 
 const SCHEMA = {
   type: 'object',
@@ -94,50 +88,15 @@ function userPrompt(a: ArticleInput): string {
 }
 
 export async function extractWithClaude(article: ArticleInput): Promise<ExtractionResult> {
-  const args = [
-    '-p',
-    userPrompt(article),
-    '--output-format',
-    'json',
-    '--json-schema',
-    JSON.stringify(SCHEMA),
-    '--append-system-prompt',
-    systemPrompt(),
-    '--model',
-    MODEL,
-  ];
-
-  return new Promise((resolve, reject) => {
-    const proc = spawn('claude', args, { stdio: ['ignore', 'pipe', 'pipe'], env: process.env });
-    let out = '';
-    let err = '';
-    const timer = setTimeout(() => {
-      proc.kill('SIGKILL');
-      reject(new Error(`claude extraction timed out after ${TIMEOUT_MS}ms`));
-    }, TIMEOUT_MS);
-
-    proc.stdout.on('data', (d) => (out += d));
-    proc.stderr.on('data', (d) => (err += d));
-    proc.on('error', (e) => {
-      clearTimeout(timer);
-      reject(new Error(`failed to spawn claude (is the CLI installed/on PATH?): ${e.message}`));
-    });
-    proc.on('close', (code) => {
-      clearTimeout(timer);
-      if (code !== 0) return reject(new Error(`claude exited ${code}: ${(err || out).slice(0, 600)}`));
-      let envelope: { structured_output?: ExtractionResult; result?: string };
-      try {
-        envelope = JSON.parse(out);
-      } catch (e) {
-        return reject(new Error(`could not parse claude JSON output: ${(e as Error).message}`));
-      }
-      const so = envelope.structured_output;
-      if (!so || !Array.isArray(so.entities) || !Array.isArray(so.relations)) {
-        return reject(new Error('claude returned no structured_output matching the schema'));
-      }
-      resolve(so);
-    });
-  });
+  const so = (await runClaude({
+    prompt: userPrompt(article),
+    schema: SCHEMA,
+    systemPrompt: systemPrompt(),
+  })) as ExtractionResult;
+  if (!so || !Array.isArray(so.entities) || !Array.isArray(so.relations)) {
+    throw new Error('claude returned no structured_output matching the schema');
+  }
+  return so;
 }
 
 // Deterministic, deliberately-synthetic output for plumbing verification only
