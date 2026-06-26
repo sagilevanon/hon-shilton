@@ -13,7 +13,7 @@ The codebase began as a **demo graph viewer with placeholder data** (Alice/Bob/A
 Four independent npm packages — there is **no root `package.json` / workspace runner**. Each is installed and run on its own:
 
 - `hon-shilton-frontend/` — Vite + React 18 + TypeScript SPA that renders the graph (port 3000).
-- `hon-shilton-backend/` — Express + TypeScript API serving the graph from a **SQLite** file (`node:sqlite`) on port 3001; mostly read-only, plus the optional Phase-4 review write (`POST /review/:edgeId`, gated by `REVIEW_GATE`).
+- `hon-shilton-backend/` — Fastify + TypeScript API serving the graph from a **SQLite** file (`node:sqlite`) on port 3001; mostly read-only, plus the optional Phase-4 review write (`POST /review/:edgeId`, gated by `REVIEW_GATE`).
 - `hon-shilton-pipeline/` — local Node/TS CLI: scrape ynet → extract via headless Claude Code → write the SQLite graph DB. Runs on your machine (manual now, cron later); not deployed.
 - `test/` — standalone Playwright E2E package. `tests/phase6.spec.ts` drives the egocentric explorer (landing → search → focal render → incremental expand → details panel); `tests/phase7.spec.ts` covers provenance (edge-click → source panel with article link + quote), category filtering, and the node panel's aliases/QID. The generated `example.spec.ts` (points at playwright.dev) is unused. Needs both dev servers running; `npx playwright install chromium` if the browser build is missing.
 
