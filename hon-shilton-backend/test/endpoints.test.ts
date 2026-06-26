@@ -1,21 +1,11 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import express from 'express';
-import supertest from 'supertest';
 import path from 'node:path';
 import os from 'node:os';
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 
-import {
-  getNodes,
-  getEdges,
-  getSearch,
-  getNeighbors,
-  getReviewQueue,
-  postReview,
-  getConfig,
-} from '../server/endpoints.js';
+import { buildApp } from '../server/app.js';
 import { initStore } from '../server/graphStore.js';
 
 // Minimal subset of the pipeline's schema — enough for the read/review queries.
@@ -107,18 +97,21 @@ describe('graph + review API (SQLite-backed)', () => {
     return p;
   }
 
-  function appWith(dbPath: string, reviewGate = false): ReturnType<typeof supertest> {
+  // Fastify's in-process test driver is inject(); this wraps it in the
+  // supertest-shaped surface the assertions use (.get/.post().send() → {status, body}).
+  // The app builds lazily so appWith() stays synchronous and callers needn't await it.
+  function appWith(dbPath: string, reviewGate = false) {
     initStore(dbPath, { reviewGate });
-    const app = express();
-    app.use(express.json());
-    app.get('/config', getConfig);
-    app.get('/Nodes', getNodes);
-    app.get('/Edges', getEdges);
-    app.get('/search', getSearch);
-    app.get('/neighbors/:id', getNeighbors);
-    app.get('/review/queue', getReviewQueue);
-    app.post('/review/:edgeId', postReview);
-    return supertest(app);
+    let app: ReturnType<typeof buildApp> | null = null;
+    const ready = () => (app ??= buildApp());
+    const inject = async (method: 'GET' | 'POST', url: string, payload?: unknown) => {
+      const res = await (await ready()).inject({ method, url, payload });
+      return { status: res.statusCode, body: res.json() };
+    };
+    return {
+      get: (url: string) => inject('GET', url),
+      post: (url: string) => ({ send: (payload: unknown) => inject('POST', url, payload) }),
+    };
   }
 
   describe('review gate OFF (default)', () => {
@@ -222,7 +215,7 @@ describe('graph + review API (SQLite-backed)', () => {
   });
 
   describe('egocentric search + neighbors (Phase 6)', () => {
-    function ego(): ReturnType<typeof supertest> {
+    function ego() {
       const p = path.join(tmp, `ego-${seq++}.db`);
       buildEgoDb(p);
       return appWith(p);

@@ -12,7 +12,7 @@ The goal is civic: make the wealth–power network legible, with provenance you 
 
 ## How it works
 
-![High-level architecture: a local pipeline scrapes ynet, extracts entities and relationships via headless Claude Code, resolves entities, verifies each relation's supporting quote with a second Claude call, and writes a SQLite graph DB; that graph.db is the hand-off to a read-only display (Express query API + egocentric React frontend).](hl-design.jpg)
+![High-level architecture: a local pipeline scrapes ynet, extracts entities and relationships via headless Claude Code, resolves entities, verifies each relation's supporting quote with a second Claude call, and writes a SQLite graph DB; that graph.db is the hand-off to a read-only display (Fastify query API + egocentric React frontend).](hl-design.jpg)
 
 The two halves are deliberately separate. The **pipeline** runs locally on your machine and is the only thing that writes data. The **display** (frontend + backend) is read-only and serves a copy of the SQLite file. The `.db` file is the hand-off between them (cloud sync is future work).
 
@@ -33,7 +33,7 @@ This is **not** a monorepo with a workspace runner — there is no root `package
 | Package | Stack | Role |
 | --- | --- | --- |
 | [`hon-shilton-pipeline/`](hon-shilton-pipeline/) | Node + TypeScript (zero runtime deps) | Local CLI: scrape ynet → extract via headless Claude Code → write the SQLite graph DB. Runs on your machine; not deployed. |
-| [`hon-shilton-backend/`](hon-shilton-backend/) | Express + TypeScript + `node:sqlite` | Read-only graph API on port **3001** (plus the optional review-write). |
+| [`hon-shilton-backend/`](hon-shilton-backend/) | Fastify + TypeScript + `node:sqlite` | Read-only graph API on port **3001** (plus the optional review-write). |
 | [`hon-shilton-frontend/`](hon-shilton-frontend/) | Vite + React 18 + TypeScript + D3 | The egocentric graph explorer on port **3000**. |
 | [`test/`](test/) | Playwright | Standalone end-to-end tests driving the explorer and provenance UI. |
 
