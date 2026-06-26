@@ -1,14 +1,6 @@
 import * as React from "react"
 
-type ToastType = "default" | "destructive"
-
-interface ToastProps {
-  id: string
-  title?: string
-  description?: string
-  type?: ToastType
-  action?: React.ReactNode
-}
+import type { ToastActionElement, ToastProps } from "@/components/ui/toast"
 
 const TOAST_LIMIT = 5
 const TOAST_REMOVE_DELAY = 1000000
@@ -51,12 +43,14 @@ interface State {
   toasts: ToasterToast[]
 }
 
-type Toast = Omit<ToasterToast, "id">
-
-type ToasterToast = Toast & {
+type ToasterToast = ToastProps & {
   id: string
-  type?: ToastType
+  title?: React.ReactNode
+  description?: React.ReactNode
+  action?: ToastActionElement
 }
+
+type Toast = Omit<ToasterToast, "id">
 
 const toastTimeouts = new Map<string, ReturnType<typeof setTimeout>>()
 

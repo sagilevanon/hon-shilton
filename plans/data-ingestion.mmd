@@ -1,0 +1,101 @@
+``` mermaid
+%% Hon Shilton — Phase 1 data ingestion (scrape → extract → store → serve)
+%% Each subgraph = WHERE the work runs. Arrows = data flowing between them.
+flowchart TD
+
+    %% ─────────────────────────────────────────────────────────────
+    subgraph REMOTE_WEB["🌐 REMOTE — ynet.co.il"]
+        YNET["Article web page<br/>(HTML + JSON-LD)"]
+    end
+
+    %% ─────────────────────────────────────────────────────────────
+    subgraph LLM["🤖 REMOTE LLM — Anthropic Claude (model: opus)<br/>reached via local <code>claude</code> login, no API key"]
+        CLAUDE_MODEL["Claude extracts<br/>entities + relations<br/>(forced to --json-schema)"]
+    end
+
+    %% ─────────────────────────────────────────────────────────────
+    subgraph LOCAL["💻 LOCAL MACHINE — hon-shilton-pipeline CLI &nbsp;(npm run ingest, manual now / cron later)"]
+        INGEST["ingest.ts<br/>orchestrator"]
+
+        subgraph SCRAPE["ynet.ts"]
+            FETCH["fetchArticle()<br/>HTTPS GET + 25s timeout"]
+            PARSE["parseArticle()<br/>pull JSON-LD articleBody,<br/>clean HTML → ArticleInput<br/>skip premium / paywalled"]
+        end
+
+        subgraph EXTRACT["extract.ts"]
+            SPAWN["extractWithClaude()<br/>spawn child process:<br/><code>claude -p --output-format json<br/>--json-schema … --model opus</code>"]
+            PARSE_ENV["parse JSON envelope →<br/>structured_output<br/>= { entities, relations }"]
+            FIXTURE["extractFixture()<br/>(--fixture: synthetic,<br/>no Claude call)"]
+        end
+
+        subgraph STORE["db.ts (writes)"]
+            UPSERT["upsertEntity()<br/>QID-first, then name"]
+            EDGE["findOrCreateEdge()<br/>key: src+tgt+relation"]
+            SRC["addSource()<br/>corroboration quote"]
+        end
+    end
+
+    %% ─────────────────────────────────────────────────────────────
+    subgraph DISK["💾 LOCAL DISK — hand-off artifact"]
+        DB[("SQLite graph.db<br/>articles · entities · aliases<br/>edges · edge_sources<br/>(…backend/server/graph.db)")]
+    end
+
+    %% ─────────────────────────────────────────────────────────────
+    subgraph SERVER["🖥️ SERVER — hon-shilton-backend :3001 (read-only)"]
+        STOREINIT["graphStore.initStore()<br/>open graph.db read-only"]
+        EP["GET /Nodes · GET /Edges<br/>display shape<br/>(503 until tables exist)"]
+    end
+
+    %% ─────────────────────────────────────────────────────────────
+    subgraph CLIENT["🧭 BROWSER — hon-shilton-frontend :3000"]
+        API["services/api.ts<br/>fetch /api/Nodes, /api/Edges"]
+        PROXY["Vite proxy<br/>/api/* → :3001 (strips /api)"]
+        GRAPH["D3NetworkGraph<br/>force-directed graph"]
+    end
+
+    %% ── DATA FLOW ────────────────────────────────────────────────
+    INGEST -->|"article URL"| FETCH
+    YNET -.->|"HTTPS response: HTML"| FETCH
+    FETCH -->|"raw HTML"| PARSE
+    PARSE -->|"ArticleInput<br/>{url,title,body,outlet,date}"| INGEST
+    INGEST -->|"cacheArticle()<br/>raw article + status"| DB
+
+    INGEST -->|"article body + Hebrew prompt"| SPAWN
+    SPAWN -.->|"prompt + schema<br/>(over claude login)"| CLAUDE_MODEL
+    CLAUDE_MODEL -.->|"JSON: structured_output"| PARSE_ENV
+    PARSE_ENV -->|"ExtractionResult"| INGEST
+    FIXTURE -.->|"--fixture path"| INGEST
+
+    INGEST -->|"entities"| UPSERT
+    INGEST -->|"relations"| EDGE
+    UPSERT --> EDGE
+    EDGE --> SRC
+    UPSERT -->|"INSERT/UPDATE"| DB
+    EDGE -->|"INSERT/UPDATE"| DB
+    SRC -->|"INSERT"| DB
+
+    %% ── SERVE / DISPLAY (downstream of ingestion) ────────────────
+    DB ==>|"read-only open<br/>(file hand-off)"| STOREINIT
+    STOREINIT --> EP
+    GRAPH --> API
+    API --> PROXY
+    PROXY -.->|"HTTP GET"| EP
+    EP -.->|"JSON nodes/edges"| PROXY
+    PROXY -.-> API
+    API --> GRAPH
+
+    %% ── styling per execution location ───────────────────────────
+    classDef web    fill:#fde68a,stroke:#b45309,color:#1f2937;
+    classDef llm    fill:#ddd6fe,stroke:#6d28d9,color:#1f2937;
+    classDef local  fill:#bfdbfe,stroke:#1d4ed8,color:#1f2937;
+    classDef disk   fill:#fecaca,stroke:#b91c1c,color:#1f2937;
+    classDef server fill:#bbf7d0,stroke:#15803d,color:#1f2937;
+    classDef client fill:#a5f3fc,stroke:#0e7490,color:#1f2937;
+
+    class YNET web;
+    class CLAUDE_MODEL llm;
+    class INGEST,FETCH,PARSE,SPAWN,PARSE_ENV,FIXTURE,UPSERT,EDGE,SRC local;
+    class DB disk;
+    class STOREINIT,EP server;
+    class API,PROXY,GRAPH client;
+```
