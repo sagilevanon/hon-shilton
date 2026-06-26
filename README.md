@@ -12,30 +12,7 @@ The goal is civic: make the wealth–power network legible, with provenance you 
 
 ## How it works
 
-```
-  ┌─────────────────────────────────────────────────┐
-  │  LOCAL PIPELINE  (hon-shilton-pipeline/)          │
-  │                                                   │
-  │   scrape ynet ──▶ extract (headless Claude Code)  │
-  │        │              │                           │
-  │        │         entity resolution                │
-  │        │         (one real person = one node)     │
-  │        ▼              ▼                            │
-  │   article cache    SQLite graph DB                │
-  │                       │                           │
-  │   verify ──▶ does the quote actually back         │
-  │              the relation? (2nd Claude call)      │
-  └───────────────────────┬───────────────────────────┘
-                           │  graph.db  (the hand-off)
-                           ▼
-  ┌─────────────────────────────────────────────────┐
-  │  DISPLAY  (read-only)                             │
-  │                                                   │
-  │   backend  ──▶  egocentric query API (Express)    │
-  │   frontend ──▶  search → focal node → expand      │
-  │                 outward, click an edge for source │
-  └─────────────────────────────────────────────────┘
-```
+![High-level architecture: a local pipeline scrapes ynet, extracts entities and relationships via headless Claude Code, resolves entities, verifies each relation's supporting quote with a second Claude call, and writes a SQLite graph DB; that graph.db is the hand-off to a read-only display (Express query API + egocentric React frontend).](hl-design.jpg)
 
 The two halves are deliberately separate. The **pipeline** runs locally on your machine and is the only thing that writes data. The **display** (frontend + backend) is read-only and serves a copy of the SQLite file. The `.db` file is the hand-off between them (cloud sync is future work).
 
