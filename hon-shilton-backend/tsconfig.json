@@ -12,6 +12,6 @@
     "resolveJsonModule": true,
     "noEmit": false
   },
-  "include": ["server/**/*", "test/**/*"],
+  "include": ["server/**/*"],
   "exclude": ["node_modules"]
 }
