@@ -27,6 +27,31 @@ describe('db round-trip', () => {
     assert.equal(g.edges[0].value, 2, 'corroboration = distinct sources');
     assert.equal(g.edges[0].sources.length, 2);
   });
+
+  it('resolves an entity whose canonical name matches an existing alias', () => {
+    const db = openDb(':memory:');
+    const full = upsertEntity(db, { canonical_name: 'בנימין נתניהו', type: 'person', aliases: ['ביבי'] });
+    const nick = upsertEntity(db, { canonical_name: 'ביבי', type: 'person' });
+    assert.equal(nick, full, 'canonical name matching an alias resolves to the same entity');
+    assert.equal(getGraph(db).nodes.length, 1);
+  });
+
+  it('corroborates a symmetric relation reported in opposite directions onto one edge', () => {
+    const db = openDb(':memory:');
+    const a = upsertEntity(db, { canonical_name: 'א', type: 'person' });
+    const b = upsertEntity(db, { canonical_name: 'ב', type: 'person' });
+
+    const fwd = findOrCreateEdge(db, { src: a, tgt: b, relation: 'שותף עסקי של', category: 'מקצועי', directed: false, confidence: 'high' });
+    const rev = findOrCreateEdge(db, { src: b, tgt: a, relation: 'שותף עסקי של', category: 'מקצועי', directed: false, confidence: 'high' });
+    assert.equal(fwd, rev, 'undirected edge collapses regardless of order');
+
+    addSource(db, fwd, { url: 'http://a', outlet: 'ynet' });
+    addSource(db, rev, { url: 'http://b', outlet: 'mako' });
+
+    const g = getGraph(db);
+    assert.equal(g.edges.length, 1, 'single symmetric edge');
+    assert.equal(g.edges[0].value, 2, 'both directions corroborate the one edge');
+  });
 });
 
 describe('ynet JSON-LD parsing', () => {

@@ -6,6 +6,8 @@
   "private": true,
   "scripts": {
     "ingest": "NODE_NO_WARNINGS=1 tsx src/ingest.ts",
+    "ingest-feed": "NODE_NO_WARNINGS=1 tsx src/ingest-feed.ts",
+    "verify": "NODE_NO_WARNINGS=1 tsx src/verify-edges.ts",
     "dump": "NODE_NO_WARNINGS=1 tsx src/dump.ts",
     "build": "tsc",
     "test": "NODE_NO_WARNINGS=1 node --import tsx --test 'src/**/*.test.ts'"

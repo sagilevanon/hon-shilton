@@ -1,430 +1,300 @@
-import React, { useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import * as d3 from 'd3';
 import { Node, Edge } from '@/types';
-import { Plus } from 'lucide-react';
-
-interface ExpandableNode {
-  nodeId: string | number;
-  expanded: boolean;
-}
+import { CATEGORIES, categoryMeta, edgeKey } from '@/lib/graph';
 
 interface D3NetworkGraphProps {
   nodes: Node[];
   edges: Edge[];
+  focalId: number | null;
+  selectedId: number | null;
+  selectedEdgeKey: string | null;
+  expandable: Set<number>;
+  remaining: Record<number, number>;
   onNodeClick: (node: Node) => void;
-  hoveredNode: string | null;
-  setHoveredNode: (nodeId: string | null) => void;
-  expandableNodes?: ExpandableNode[];
-  onExpandNode?: (nodeId: string | number) => void;
+  onEdgeClick: (edge: Edge) => void;
+  onExpandNode: (id: number) => void;
 }
 
-const D3NetworkGraph: React.FC<D3NetworkGraphProps> = ({
+type SimNode = Node & { x: number; y: number; fx?: number | null; fy?: number | null };
+type SimEdge = Omit<Edge, 'source' | 'target'> & { source: SimNode; target: SimNode };
+
+const isPerson = (t: string) => t.toLowerCase() === 'person';
+const linkWidth = (value?: number) => Math.min(8, 1.2 * Math.max(1, value ?? 1));
+const endXY = (id: number | { id: number }) => (typeof id === 'object' ? id.id : id);
+const colorOf = (e: { category?: string }) => categoryMeta(e.category).color;
+// d3.forceLink mutates edge endpoints into node objects; normalize back to the
+// numeric-endpoint Edge the rest of the app (keys, panel lookups) expects.
+const toEdge = (e: SimEdge): Edge => ({ ...e, source: endXY(e.source), target: endXY(e.target) });
+const keyOf = (e: SimEdge) => edgeKey(toEdge(e));
+
+export default function D3NetworkGraph({
   nodes,
   edges,
+  focalId,
+  selectedId,
+  selectedEdgeKey,
+  expandable,
+  remaining,
   onNodeClick,
-  hoveredNode,
-  setHoveredNode,
-  expandableNodes = [],
+  onEdgeClick,
   onExpandNode,
-}) => {
+}: D3NetworkGraphProps) {
   const svgRef = useRef<SVGSVGElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const simulationRef = useRef<d3.Simulation<d3.SimulationNodeDatum, undefined>>();
+  const posRef = useRef<Map<number, { x: number; y: number }>>(new Map());
 
   useEffect(() => {
     if (!svgRef.current || nodes.length === 0) return;
-
-    // Use window dimensions for full viewport
     const width = window.innerWidth;
     const height = window.innerHeight;
-    
-    // Clear previous SVG content
-    d3.select(svgRef.current).selectAll('*').remove();
+    const radiusOf = (id: number) => (id === focalId ? 30 : 22);
 
-    // Create SVG container
-    const svg = d3.select(svgRef.current)
-      .attr('width', '100%')
-      .attr('height', '100%')
-      .attr('viewBox', `0 0 ${width} ${height}`)
-      .style('background-color', 'transparent');
+    const svg = d3.select(svgRef.current);
+    svg.selectAll('*').remove();
+    svg.attr('viewBox', `0 0 ${width} ${height}`);
 
-    // Create a group for zoom/pan
-    const g = svg.append('g');
-
-    // Add zoom behavior
-    const zoom = d3.zoom<SVGSVGElement, unknown>()
-      .scaleExtent([0.1, 4])
-      .on('zoom', (event) => {
-        g.attr('transform', event.transform);
-      });
-
-    svg.call(zoom as any);
-
-    // For small graphs with one central node and its connections,
-    // we'll use a simple radial layout with fixed positions
-    const setupInitialPositions = () => {
-      // Position all nodes initially at the center to avoid teleporting
-      nodes.forEach(node => {
-        (node as any).x = width / 2;
-        (node as any).y = height / 2;
-      });
-      
-      // Find the central node (usually id=1)
-      const centralNodeId = 1;
-      const centralNode = nodes.find(n => n.id === centralNodeId);
-      
-      if (centralNode) {
-        // Position central node in the middle
-        (centralNode as any).x = width / 2;
-        (centralNode as any).y = height / 2;
-      }
-      
-      // Get all nodes except the central one
-      const connectedNodes = nodes.filter(n => n.id !== centralNodeId);
-      
-      // Position connected nodes in a circle around the central node
-      if (connectedNodes.length > 0) {
-        const angleStep = (2 * Math.PI) / connectedNodes.length;
-        const radius = 150; // Distance from central node
-        
-        connectedNodes.forEach((node, i) => {
-          const angle = i * angleStep;
-          // Position in a circle around central node
-          (node as any).x = width / 2 + radius * Math.cos(angle);
-          (node as any).y = height / 2 + radius * Math.sin(angle);
-        });
-      }
+    const defs = svg.append('defs');
+    const gradient = (id: string, a: string, b: string) => {
+      const g = defs.append('radialGradient').attr('id', id).attr('cx', '35%').attr('cy', '30%').attr('r', '75%');
+      g.append('stop').attr('offset', '0%').attr('stop-color', a);
+      g.append('stop').attr('offset', '100%').attr('stop-color', b);
     };
-    
-    // Apply initial positions
-    setupInitialPositions();
-    
-    // Create a minimal simulation that just applies the initial positions
-    // without causing much additional movement
-    const simulation = d3.forceSimulation(nodes as d3.SimulationNodeDatum[])
-      // Use a very weak link force just to maintain structure
-      .force('link', d3.forceLink(edges)
-        .id((d: any) => d.id)
-        .distance(150) // Larger distance to spread things out
-        .strength(0.05) // Extremely weak to minimize movement
+    gradient('grad-person', '#F1E9D6', '#CBBD9A');
+    gradient('grad-org', '#CDAC5E', '#8C6C2C');
+    // One arrowhead per category so the head matches its edge color.
+    CATEGORIES.forEach((c) => {
+      defs
+        .append('marker')
+        .attr('id', `arrow-${c.id}`)
+        .attr('viewBox', '0 -5 10 10')
+        .attr('refX', 9)
+        .attr('refY', 0)
+        .attr('markerWidth', 6)
+        .attr('markerHeight', 6)
+        .attr('orient', 'auto-start-reverse')
+        .append('path')
+        .attr('d', 'M0,-5L10,0L0,5')
+        .attr('fill', c.color);
+    });
+
+    const root = svg.append('g');
+    const zoom = d3
+      .zoom<SVGSVGElement, unknown>()
+      .scaleExtent([0.25, 3])
+      .on('zoom', (e) => root.attr('transform', e.transform));
+    svg.call(zoom as any).on('dblclick.zoom', null);
+
+    const simNodes: SimNode[] = nodes.map((n) => ({ ...(n as SimNode) }));
+    const simEdges: SimEdge[] = edges.map((e) => ({ ...e }) as unknown as SimEdge);
+
+    const cx = width / 2;
+    const cy = height / 2;
+    simNodes.forEach((n, i) => {
+      const p = posRef.current.get(n.id);
+      if (p) ((n.x = p.x), (n.y = p.y));
+      else if (n.id === focalId) ((n.x = cx), (n.y = cy));
+      else {
+        const a = (i / simNodes.length) * 2 * Math.PI;
+        n.x = cx + 180 * Math.cos(a);
+        n.y = cy + 180 * Math.sin(a);
+      }
+    });
+
+    const sim = d3
+      .forceSimulation(simNodes)
+      .force(
+        'link',
+        d3
+          .forceLink<SimNode, SimEdge>(simEdges)
+          .id((d) => d.id)
+          .distance((d) => 96 + 16 * Math.min(4, d.value ?? 1))
+          .strength(0.45),
       )
-      // Almost no charge force
-      .force('charge', d3.forceManyBody().strength(-10))
-      // Very weak center force
-      .force('center', d3.forceCenter(width / 2, height / 2).strength(0.01))
-      // Prevent overlap
-      .force('collision', d3.forceCollide().radius(60))
-      // Very quick decay to stop simulation almost immediately
-      .alphaDecay(0.3)
-      // Maximum damping for stability
-      .velocityDecay(0.9)
-      // Start with low alpha to minimize initial movement
-      .alpha(0.1);
+      .force('charge', d3.forceManyBody().strength(-460))
+      .force('center', d3.forceCenter(cx, cy))
+      .force('collide', d3.forceCollide<SimNode>().radius((d) => radiusOf(d.id) + 26))
+      .force('x', d3.forceX(cx).strength(0.045))
+      .force('y', d3.forceY(cy).strength(0.045))
+      .stop();
+    sim.tick(320);
+    simNodes.forEach((n) => posRef.current.set(n.id, { x: n.x, y: n.y }));
 
-    simulationRef.current = simulation;
+    const linkG = root.append('g');
+    const linkSel = linkG
+      .selectAll('line.hs-link')
+      .data(simEdges)
+      .join('line')
+      .attr('class', 'hs-link')
+      .attr('stroke', colorOf)
+      .attr('stroke-opacity', (d) => (keyOf(d) === selectedEdgeKey ? 0.98 : 0.42))
+      .attr('stroke-linecap', 'round')
+      .attr('stroke-width', (d) => linkWidth(d.value) + (keyOf(d) === selectedEdgeKey ? 2.5 : 0))
+      .attr('marker-end', (d) => (d.directed === false ? null : `url(#arrow-${categoryMeta(d.category).id})`));
 
-    // Create links (edges)
-    const link = g.append('g')
-      .selectAll('line')
-      .data(edges)
-      .enter().append('line')
-      .attr('stroke', '#94a3b8')
-      .attr('stroke-opacity', 0.7)
-      .attr('stroke-width', 2);
+    // Transparent fat lines give thin edges a clickable hit area.
+    const hitSel = linkG
+      .selectAll('line.hs-link-hit')
+      .data(simEdges)
+      .join('line')
+      .attr('class', 'hs-link-hit')
+      .attr('stroke', 'transparent')
+      .attr('stroke-width', 16)
+      .style('cursor', 'pointer')
+      .on('click', (e, d) => (e.stopPropagation(), onEdgeClick(toEdge(d))));
 
-    // Create link labels
-    const linkText = g.append('g')
+    const labelSel = root
+      .append('g')
       .selectAll('text')
-      .data(edges)
-      .enter().append('text')
-      .attr('font-size', 10)
-      .attr('fill', '#4b5563')
-      .text(d => d.relation);
+      .data(simEdges)
+      .join('text')
+      .attr('class', 'hs-link-label')
+      .attr('text-anchor', 'middle')
+      .style('pointer-events', 'none')
+      .text((d) => d.relation);
 
-    // Create nodes group with hover events
-    const node = g.append('g')
-      .selectAll('g')
-      .data(nodes)
-      .enter().append('g')
-      .attr('class', 'node-group')
-      .style('pointer-events', 'all')
-      .call(d3.drag<SVGGElement, Node>()
-        .on('start', dragstarted)
-        .on('drag', dragged)
-        .on('end', dragended)
+    const nodeSel = root
+      .append('g')
+      .selectAll<SVGGElement, SimNode>('g')
+      .data(simNodes)
+      .join('g')
+      .attr('class', 'hs-node')
+      .call(
+        d3
+          .drag<SVGGElement, SimNode>()
+          .on('start', (_e, d) => ((d.fx = d.x), (d.fy = d.y)))
+          .on('drag', (e, d) => ((d.fx = e.x), (d.fy = e.y), (d.x = e.x), (d.y = e.y), ticked()))
+          .on('end', (_e, d) => ((d.fx = d.x), (d.fy = d.y))),
       )
-      .on('mouseover', function(event, d) {
-        setHoveredNode(d.id.toString());
-      })
-      .on('mouseout', function() {
-        setHoveredNode(null);
-      });
+      .on('click', (e, d) => (e.stopPropagation(), onNodeClick(d)))
+      .on('mouseenter', (_e, d) => highlight(d.id))
+      .on('mouseleave', clearHighlight);
 
-    // Add circles for nodes
-    node.append('circle')
-      .attr('r', 20)
-      .attr('fill', d => d.type.toLowerCase() === 'person' ? '#3b82f6' : '#ef4444')
-      .on('click', function(event, d) {
-        event.stopPropagation();
-        onNodeClick(d);
-      });
-
-    // Add node images or initials
-    node.each(function(d) {
-      const nodeGroup = d3.select(this);
-      
-      if (d.image) {
-        nodeGroup.append('image')
-          .attr('x', -20)
-          .attr('y', -20)
-          .attr('width', 40)
-          .attr('height', 40)
-          .attr('xlink:href', d.image)
-          .attr('clip-path', 'circle(20px at center)')
-          .on('click', (event) => {
-            event.stopPropagation();
-            onNodeClick(d);
-          });
-      } else if (d.type.toLowerCase() === 'person') {
-        // Use silhouette.svg as fallback for person nodes without images
-        nodeGroup.append('image')
-          .attr('x', -20)
-          .attr('y', -20)
-          .attr('width', 40)
-          .attr('height', 40)
-          .attr('xlink:href', '/silhouette.svg')
-          .attr('clip-path', 'circle(20px at center)')
-          .on('click', (event) => {
-            event.stopPropagation();
-            onNodeClick(d);
-          });
-      } else {
-        // For non-person nodes without images, use the first letter of the name
-        nodeGroup.append('text')
-          .attr('text-anchor', 'middle')
-          .attr('dy', 5)
-          .attr('fill', 'white')
-          .attr('font-size', 12)
-          .attr('font-weight', '500')
-          .text(d.name.charAt(0).toUpperCase());
-      }
-
-      // Add node name
-      nodeGroup.append('text')
-        .attr('text-anchor', 'middle')
-        .attr('dy', 30)
-        .attr('fill', '#374151')
-        .attr('font-size', 12)
-        .attr('font-weight', '500')
-        .text(d.name);
-      
-      // Add expand button for expandable nodes
-      const isExpandable = expandableNodes.some(n => n.nodeId === d.id);
-      const isExpanded = expandableNodes.some(n => n.nodeId === d.id && n.expanded);
-      
-      if (isExpandable && !isExpanded && onExpandNode) {
-        // Add a circle background for the plus icon
-        nodeGroup.append('circle')
-          .attr('cx', 15)
-          .attr('cy', -15)
-          .attr('r', 8)
-          .attr('fill', '#4f46e5') // Indigo color
-          .attr('stroke', '#ffffff')
-          .attr('stroke-width', 1.5)
-          .attr('class', 'expand-button')
-          .style('cursor', 'pointer')
-          .on('click', (event) => {
-            event.stopPropagation();
-            onExpandNode(d.id);
-          });
-        
-        // Add the plus symbol
-        nodeGroup.append('text')
-          .attr('x', 15)
-          .attr('y', -15)
-          .attr('text-anchor', 'middle')
-          .attr('dominant-baseline', 'central')
-          .attr('fill', '#ffffff')
-          .attr('font-size', 12)
-          .attr('font-weight', 'bold')
-          .attr('class', 'expand-icon')
-          .style('cursor', 'pointer')
-          .text('+')
-          .on('click', (event) => {
-            event.stopPropagation();
-            onExpandNode(d.id);
-          });
-      }
+    const focal = nodeSel.filter((d) => d.id === focalId);
+    focal
+      .append('circle')
+      .attr('r', (d) => radiusOf(d.id) + 8)
+      .attr('fill', 'none')
+      .attr('stroke', 'var(--focal)')
+      .attr('stroke-width', 1.5);
+    [0, 90, 180, 270].forEach((deg) => {
+      const a = (deg * Math.PI) / 180;
+      focal
+        .append('line')
+        .attr('class', 'hs-reticle')
+        .attr('x1', (d) => Math.cos(a) * (radiusOf(d.id) + 4))
+        .attr('y1', (d) => Math.sin(a) * (radiusOf(d.id) + 4))
+        .attr('x2', (d) => Math.cos(a) * (radiusOf(d.id) + 13))
+        .attr('y2', (d) => Math.sin(a) * (radiusOf(d.id) + 13));
     });
 
-    // Update positions on each tick
-    simulation.on('tick', () => {
-      link
-        .attr('x1', d => (d.source as any).x || 0)
-        .attr('y1', d => (d.source as any).y || 0)
-        .attr('x2', d => (d.target as any).x || 0)
-        .attr('y2', d => (d.target as any).y || 0);
+    nodeSel
+      .append('circle')
+      .attr('class', 'body')
+      .attr('r', (d) => radiusOf(d.id))
+      .attr('fill', (d) => `url(#${isPerson(d.type) ? 'grad-person' : 'grad-org'})`)
+      .attr('stroke', (d) => (d.id === selectedId ? '#C2A14D' : 'rgba(8,16,14,0.65)'))
+      .attr('stroke-width', (d) => (d.id === selectedId ? 4 : 1.5))
+      .style('filter', 'drop-shadow(0 5px 11px rgba(0,0,0,0.55))');
 
-      linkText
-        .attr('x', d => ((d.source as any).x + (d.target as any).x) / 2)
-        .attr('y', d => ((d.source as any).y + (d.target as any).y) / 2);
+    nodeSel
+      .append('text')
+      .attr('class', 'label')
+      .attr('text-anchor', 'middle')
+      .attr('dy', (d) => radiusOf(d.id) + 17)
+      .attr('font-size', (d) => (d.id === focalId ? 14.5 : 12.5))
+      .text((d) => d.name);
 
-      node
-        .attr('transform', d => `translate(${(d as any).x},${(d as any).y})`);
-    });
+    const expanders = nodeSel.filter((d) => expandable.has(d.id)).append('g').attr('class', 'hs-expander');
+    expanders
+      .append('circle')
+      .attr('cx', (d) => radiusOf(d.id) * 0.72)
+      .attr('cy', (d) => -radiusOf(d.id) * 0.72)
+      .attr('r', 10)
+      .attr('fill', '#C8102E')
+      .attr('stroke', '#F4EFE4')
+      .attr('stroke-width', 2);
+    expanders
+      .append('text')
+      .attr('x', (d) => radiusOf(d.id) * 0.72)
+      .attr('y', (d) => -radiusOf(d.id) * 0.72)
+      .attr('text-anchor', 'middle')
+      .attr('dominant-baseline', 'central')
+      .attr('fill', '#fff')
+      .attr('font-size', (d) => (remaining[d.id] > 0 ? 9 : 13))
+      .attr('font-weight', 700)
+      .style('pointer-events', 'none')
+      .text((d) => (remaining[d.id] > 0 ? `+${remaining[d.id]}` : '+'));
+    expanders.on('click', (e, d) => (e.stopPropagation(), onExpandNode(d.id)));
 
-    // Improved drag behavior for smoother node movement
-    function dragstarted(event: any, d: any) {
-      // Immediately fix the node at its current position
-      // This prevents any initial jump when starting to drag
-      d.fx = d.x;
-      d.fy = d.y;
-      
-      // Stop the simulation completely during drag
-      simulation.alphaTarget(0);
-      simulation.alpha(0);
-      
-      // Fix all other nodes in place during dragging to prevent unwanted movement
-      simulation.nodes().forEach((node: any) => {
-        if (node !== d) {
-          node.fx = node.x;
-          node.fy = node.y;
-        }
+    function ticked() {
+      linkSel
+        .attr('x1', (d) => trim(d, 'x1'))
+        .attr('y1', (d) => trim(d, 'y1'))
+        .attr('x2', (d) => trim(d, 'x2'))
+        .attr('y2', (d) => trim(d, 'y2'));
+      hitSel
+        .attr('x1', (d) => d.source.x)
+        .attr('y1', (d) => d.source.y)
+        .attr('x2', (d) => d.target.x)
+        .attr('y2', (d) => d.target.y);
+      labelSel
+        .attr('x', (d) => (d.source.x + d.target.x) / 2)
+        .attr('y', (d) => (d.source.y + d.target.y) / 2);
+      nodeSel.attr('transform', (d) => `translate(${d.x},${d.y})`);
+    }
+
+    function trim(d: SimEdge, which: string): number {
+      const dx = d.target.x - d.source.x;
+      const dy = d.target.y - d.source.y;
+      const L = Math.hypot(dx, dy) || 1;
+      const ux = dx / L;
+      const uy = dy / L;
+      const sR = radiusOf(d.source.id) + 2;
+      const tR = radiusOf(d.target.id) + (d.directed === false ? 2 : 9);
+      if (which === 'x1') return d.source.x + ux * sR;
+      if (which === 'y1') return d.source.y + uy * sR;
+      if (which === 'x2') return d.target.x - ux * tR;
+      return d.target.y - uy * tR;
+    }
+
+    function highlight(id: number) {
+      const adj = new Set<number>([id]);
+      simEdges.forEach((e) => {
+        const s = endXY(e.source);
+        const t = endXY(e.target);
+        if (s === id) adj.add(t);
+        if (t === id) adj.add(s);
       });
+      nodeSel.style('opacity', (d) => (adj.has(d.id) ? 1 : 0.16));
+      const touches = (e: SimEdge) => endXY(e.source) === id || endXY(e.target) === id;
+      linkSel.style('stroke-opacity', (e) => (touches(e) ? 0.95 : 0.05));
+      labelSel.style('opacity', (e) => (touches(e) ? 1 : 0.05));
+    }
+    function clearHighlight() {
+      nodeSel.style('opacity', 1);
+      linkSel.style('stroke-opacity', (d) => (keyOf(d) === selectedEdgeKey ? 0.98 : 0.42));
+      labelSel.style('opacity', 1);
     }
 
-    function dragged(event: any, d: any) {
-      // Direct position setting for the dragged node
-      // This gives the most precise control with no lag
-      d.fx = event.x;
-      d.fy = event.y;
-      
-      // Update the node's actual position to match the fixed position
-      // This ensures consistency between fx/fy and x/y
-      d.x = event.x;
-      d.y = event.y;
-    }
+    ticked();
 
-    function dragended(event: any, d: any) {
-      // Keep the node fixed at its final position
-      d.fx = d.x;
-      d.fy = d.y;
-      
-      // Make sure simulation stays stopped
-      simulation.alphaTarget(0);
-    }
+    const xs = simNodes.map((n) => n.x);
+    const ys = simNodes.map((n) => n.y);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    const bw = maxX - minX || 1;
+    const bh = maxY - minY || 1;
+    const pad = 160;
+    const scale = Math.max(0.3, Math.min(1.8, (width - pad * 2) / bw, (height - pad * 2) / bh));
+    const t = d3.zoomIdentity
+      .translate(width / 2 - scale * (minX + maxX) / 2, height / 2 - scale * (minY + maxY) / 2)
+      .scale(scale);
+    svg.transition().duration(500).call(zoom.transform as any, t);
 
-    // Handle hover effects - only update styles, not positions
-    if (hoveredNode) {
-      // Ensure simulation is completely stopped during hover
-      simulation.alphaTarget(0);
-      simulation.alpha(0);
-      // Fix all nodes in their current positions
-      simulation.nodes().forEach(node => {
-        if (!node.fx) node.fx = node.x;
-        if (!node.fy) node.fy = node.y;
-      });
-      
-      // Highlight links connected to the hovered node
-      link
-        .style('opacity', d => {
-          const sourceId = (d.source as any)?.id?.toString() || (d.source as any)?.toString();
-          const targetId = (d.target as any)?.id?.toString() || (d.target as any)?.toString();
-          return (sourceId === hoveredNode || targetId === hoveredNode) ? 1 : 0.3;
-        });
-      
-      // Highlight the hovered node and its direct connections
-      node
-        .style('opacity', d => {
-          const nodeId = d.id.toString();
-          if (nodeId === hoveredNode) return 1;
-          
-          // Check if this node is connected to the hovered node
-          return edges.some(e => {
-            const sourceId = (e.source as any)?.id?.toString() || e.source?.toString();
-            const targetId = (e.target as any)?.id?.toString() || e.target?.toString();
-            return (sourceId === hoveredNode && targetId === nodeId) || 
-                   (targetId === hoveredNode && sourceId === nodeId);
-          }) ? 1 : 0.3;
-        });
-    } else {
-      // Keep simulation stopped when not hovering
-      simulation.alphaTarget(0);
-      
-      // Reset all opacities
-      link.style('opacity', 0.7);
-      node.style('opacity', 1);
-    }
+    return () => void sim.stop();
+  }, [nodes, edges, focalId, selectedId, selectedEdgeKey, expandable, remaining, onNodeClick, onEdgeClick, onExpandNode]);
 
-      // Clean up simulation on unmount or when nodes/edges change
-    return () => {
-      if (simulationRef.current) {
-        simulationRef.current.stop();
-      }
-    };
-  }, [nodes, edges, hoveredNode]);
-
-  // Handle window resize
-  useEffect(() => {
-    const handleResize = () => {
-      if (!isMounted.current) return;
-      
-      const width = window.innerWidth;
-      const height = window.innerHeight;
-      
-      if (svgRef.current) {
-        d3.select(svgRef.current)
-          .attr('viewBox', `0 0 ${width} ${height}`);
-        
-        // Update simulation center
-        if (simulationRef.current) {
-          simulationRef.current.force('center', d3.forceCenter(width / 2, height / 2));
-          simulationRef.current.alpha(0.5).restart();
-        }
-      }
-    };
-
-    // Initial setup
-    handleResize();
-    
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  // Use a ref to track if we're mounted
-  const isMounted = useRef(true);
-
-  // Clean up on unmount
-  useEffect(() => {
-    return () => {
-      isMounted.current = false;
-      if (simulationRef.current) {
-        simulationRef.current.stop();
-      }
-    };
-  }, []);
-
-  return (
-    <div 
-      ref={containerRef} 
-      className="fixed top-0 left-0 w-screen h-screen"
-      style={{ 
-        margin: 0, 
-        padding: 0, 
-        overflow: 'hidden',
-        backgroundColor: '#f9fafb' // Match the SVG background
-      }}
-    >
-      <svg 
-        ref={svgRef} 
-        className="w-full h-full"
-        style={{ 
-          display: 'block',
-          backgroundColor: '#f9fafb' // Match the container background
-        }}
-      />
-    </div>
-  );
-};
-
-export default D3NetworkGraph;
+  return <svg ref={svgRef} className="h-full w-full" style={{ display: 'block' }} />;
+}

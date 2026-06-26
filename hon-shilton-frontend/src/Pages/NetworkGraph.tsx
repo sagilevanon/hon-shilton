@@ -1,248 +1,243 @@
-import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { NodeAPI, EdgeAPI, GraphAPI } from '@/services/api';
-import { Node, Edge } from '@/types';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { AnimatePresence } from 'framer-motion';
+import { ClipboardCheck, Loader2, Spline } from 'lucide-react';
+import { ConfigAPI, NeighborAPI } from '@/services/api';
+import { Node, Edge, SearchResult, NeighborGraph } from '@/types';
+import { CATEGORIES, edgeKey } from '@/lib/graph';
 import D3NetworkGraph from '../components/graph/D3NetworkGraph';
 import NodeDetailsPanel from '../components/graph/NodeDetailsPanel';
-import { Button } from "@/components/ui/button";
-import { RefreshCw, Users, Link as LinkIcon } from 'lucide-react';
+import EdgeDetailsPanel from '../components/graph/EdgeDetailsPanel';
+import Landing from '../components/explorer/Landing';
+import SearchBox from '../components/explorer/SearchBox';
+import CategoryFilter from '../components/explorer/CategoryFilter';
 
-interface GraphStats {
-  persons: number;
-  linkingEntitys: number;
-  connections: number;
+const STEP = 8;
+const ALL_CATEGORIES = new Set(CATEGORIES.map((c) => c.key));
+
+interface Graph {
+  nodes: Node[];
+  edges: Edge[];
 }
-
-interface ExpandableNode {
-  nodeId: string | number;
-  expanded: boolean;
+interface Meta {
+  shown: number;
+  total: number;
 }
 
 export default function NetworkGraphPage() {
-  const [nodes, setNodes] = useState<Node[]>([]);
-  const [edges, setEdges] = useState<Edge[]>([]);
+  const [graph, setGraph] = useState<Graph>({ nodes: [], edges: [] });
+  const [focalId, setFocalId] = useState<number | null>(null);
+  const [meta, setMeta] = useState<Map<number, Meta>>(new Map());
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
-  const [hoveredNode, setHoveredNode] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [stats, setStats] = useState<GraphStats>({ persons: 0, linkingEntitys: 0, connections: 0 });
-  const [expandableNodes, setExpandableNodes] = useState<ExpandableNode[]>([{ nodeId: 10, expanded: false }]);
+  const [selectedEdge, setSelectedEdge] = useState<Edge | null>(null);
+  const [active, setActive] = useState<Set<string>>(ALL_CATEGORIES);
+  const [loading, setLoading] = useState(false);
+  const [reviewGate, setReviewGate] = useState(false);
+  const [session, setSession] = useState(0);
+  const metaRef = useRef(meta);
+  metaRef.current = meta;
 
   useEffect(() => {
-    console.log('in useEffect')
-    loadData();
+    ConfigAPI.get()
+      .then((c) => setReviewGate(c.reviewGate))
+      .catch(() => undefined);
   }, []);
 
-  const loadData = async () => {
-    setIsLoading(true);
+  const merge = useCallback((g: NeighborGraph) => {
+    setGraph((prev) => {
+      const nodeIds = new Set(prev.nodes.map((n) => n.id));
+      const seen = new Set(prev.edges.map(edgeKey));
+      return {
+        nodes: [...prev.nodes, ...g.nodes.filter((n) => !nodeIds.has(n.id))],
+        edges: [...prev.edges, ...g.edges.filter((e) => !seen.has(edgeKey(e)))],
+      };
+    });
+    setMeta((prev) => new Map(prev).set(g.focalId, { shown: g.shown, total: g.total }));
+  }, []);
+
+  const clearSelection = useCallback(() => (setSelectedNode(null), setSelectedEdge(null)), []);
+
+  const selectEntity = useCallback(async (r: SearchResult) => {
+    setLoading(true);
     try {
-      console.log('Fetching nodes and edges...');
-      const [nodesData, edgesData] = await Promise.all([
-        NodeAPI.list(),
-        EdgeAPI.list()
-      ]);
-      
-      console.log('Nodes data:', nodesData);
-      console.log('Edges data:', edgesData);
-      
-      // Ensure nodes have required properties
-      const processedNodes = nodesData.map(node => ({
-        ...node,
-        name: node.name || `Node ${node.id}`,
-        group: node.group || 1,
-        type: node.type || 'unknown'
-      }));
-      
-      setNodes(processedNodes);
-      setEdges(edgesData);
-      
-      const persons = processedNodes.filter(n => n.type === 'person').length;
-      const linkingEntitys = processedNodes.length - persons;
-      setStats({ 
-        persons, 
-        linkingEntitys, 
-        connections: edgesData.length 
-      });
-    } catch (error) {
-      console.error('Error loading data:', error);
+      const g = await NeighborAPI.get(r.id);
+      setGraph({ nodes: g.nodes, edges: g.edges });
+      setMeta(new Map([[g.focalId, { shown: g.shown, total: g.total }]]));
+      setFocalId(r.id);
+      setSelectedNode(null);
+      setSelectedEdge(null);
+      setActive(ALL_CATEGORIES);
+      setSession((s) => s + 1);
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
-  };
+  }, []);
 
-  const handleNodeClick = (node: Node) => {
-    console.log('Node clicked:', node);
-    setSelectedNode(node);
-  };
-
-  const closeDetailsPanel = () => {
-    setSelectedNode(null);
-  };
-
-  const handleExpandNode = async (nodeId: string | number) => {
-    console.log('Expanding node:', nodeId);
-    
-    // Check if this node is already expanded
-    const isExpanded = expandableNodes.find(n => n.nodeId === nodeId)?.expanded;
-    if (isExpanded) {
-      console.log('Node already expanded');
-      return;
-    }
-    
-    setIsLoading(true);
-    try {
-      // Fetch additional data from graph-addition.json
-      const additionalData = await GraphAPI.getAdditionalData();
-      console.log('Additional data:', additionalData);
-      
-      // Find the expanding node to use its position as a reference
-      const expandingNode = nodes.find(node => node.id === nodeId);
-      
-      // Merge new nodes and edges with existing ones
-      // Filter out any nodes that already exist in the current graph
-      let newNodes = additionalData.nodes.filter(newNode => 
-        !nodes.some(existingNode => existingNode.id === newNode.id)
-      );
-      
-      // Add initial positions to new nodes based on the expanding node's position
-      // or the center of the graph if expanding node is not found
-      if (expandingNode && (expandingNode as any).x && (expandingNode as any).y) {
-        // Use the expanding node's position as a reference
-        const centerX = (expandingNode as any).x;
-        const centerY = (expandingNode as any).y;
-        
-        // Add initial positions to new nodes with a small random offset
-        newNodes = newNodes.map(node => ({
-          ...node,
-          // Add x and y properties for initial positioning
-          x: centerX + (Math.random() - 0.5) * 100,
-          y: centerY + (Math.random() - 0.5) * 100,
-          // Fix the position initially to prevent them from flying away
-          fx: centerX + (Math.random() - 0.5) * 100,
-          fy: centerY + (Math.random() - 0.5) * 100
-        }));
+  const expandNode = useCallback(
+    async (id: number) => {
+      const m = metaRef.current.get(id);
+      const limit = m ? m.shown + STEP : undefined;
+      setLoading(true);
+      try {
+        merge(await NeighborAPI.get(id, limit));
+      } finally {
+        setLoading(false);
       }
-      
-      // Filter out any edges that already exist in the current graph
-      const newEdges = additionalData.edges.filter(newEdge => 
-        !edges.some(existingEdge => 
-          existingEdge.source === newEdge.source && existingEdge.target === newEdge.target
-        )
-      );
-      
-      // Update state with new nodes and edges
-      setNodes(prevNodes => [...prevNodes, ...newNodes]);
-      setEdges(prevEdges => [...prevEdges, ...newEdges]);
-      
-      // Mark this node as expanded
-      setExpandableNodes(prev => 
-        prev.map(n => n.nodeId === nodeId ? { ...n, expanded: true } : n)
-      );
-      
-      // Update stats
-      const updatedPersons = [...nodes, ...newNodes].filter(n => n.type === 'person').length;
-      const updatedLinkingEntitys = [...nodes, ...newNodes].length - updatedPersons;
-      setStats({ 
-        persons: updatedPersons, 
-        linkingEntitys: updatedLinkingEntitys, 
-        connections: [...edges, ...newEdges].length 
-      });
-    } catch (error) {
-      console.error('Error expanding node:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    },
+    [merge],
+  );
 
-  if (isLoading) {
-    return (
-      <div className="h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-blue-50">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-600 font-medium">Loading network...</p>
-        </div>
-      </div>
-    );
-  }
+  const reset = useCallback(() => {
+    setGraph({ nodes: [], edges: [] });
+    setMeta(new Map());
+    setFocalId(null);
+    clearSelection();
+  }, [clearSelection]);
+
+  const onNodeClick = useCallback((n: Node) => (setSelectedEdge(null), setSelectedNode(n)), []);
+  const onEdgeClick = useCallback((e: Edge) => (setSelectedNode(null), setSelectedEdge(e)), []);
+  const toggleCategory = useCallback(
+    (key: string) =>
+      setActive((prev) => {
+        const next = new Set(prev);
+        next.has(key) ? next.delete(key) : next.add(key);
+        return next;
+      }),
+    [],
+  );
+
+  const counts = useMemo(() => {
+    const c: Record<string, number> = {};
+    for (const e of graph.edges) c[e.category ?? 'אחר'] = (c[e.category ?? 'אחר'] ?? 0) + 1;
+    return c;
+  }, [graph.edges]);
+
+  // Category filter: drop hidden-category edges, then any node left unconnected
+  // (the focal node always stays so the view never empties out under it).
+  const view = useMemo(() => {
+    if (active.size === CATEGORIES.length) return graph;
+    const edges = graph.edges.filter((e) => active.has(e.category ?? 'אחר'));
+    const keep = new Set<number>(focalId === null ? [] : [focalId]);
+    for (const e of edges) (keep.add(e.source), keep.add(e.target));
+    return { edges, nodes: graph.nodes.filter((n) => keep.has(n.id)) };
+  }, [graph, active, focalId]);
+
+  const nodeById = useMemo(() => new Map(graph.nodes.map((n) => [n.id, n])), [graph.nodes]);
+
+  const expandable = useMemo(() => {
+    const s = new Set<number>();
+    for (const n of view.nodes) {
+      const m = meta.get(n.id);
+      if (!m || m.total > m.shown) s.add(n.id);
+    }
+    return s;
+  }, [view.nodes, meta]);
+
+  const remaining = useMemo(() => {
+    const r: Record<number, number> = {};
+    for (const [id, m] of meta) if (m.total > m.shown) r[id] = m.total - m.shown;
+    return r;
+  }, [meta]);
+
+  if (focalId === null) return <Landing onSelect={selectEntity} />;
+
+  const persons = view.nodes.filter((n) => n.type.toLowerCase() === 'person').length;
+  const orgs = view.nodes.length - persons;
 
   return (
-    <div className="h-screen bg-gradient-to-br from-slate-50 to-blue-50 relative overflow-hidden">
-      {/* Header */}
-      <div className="absolute top-0 left-0 right-0 z-10 bg-white/80 backdrop-blur-md border-b border-gray-200">
-        <div className="px-8 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">Network Graph</h1>
-              <p className="text-gray-600 mt-1">Explore connections between people and entities</p>
-            </div>
-            
-            <div className="flex items-center gap-6">
-              <div className="flex items-center gap-4 text-sm">
-                <div className="flex items-center gap-2">
-                  <Users className="w-4 h-4 text-blue-500" />
-                  <span className="font-medium">{stats.persons} People</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <LinkIcon className="w-4 h-4 text-red-500" />
-                  <span className="font-medium">{stats.linkingEntitys} Connectors</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-4 h-4 flex items-center justify-center">
-                    <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
-                  </span>
-                  <span className="font-medium">{stats.connections} Connections</span>
-                </div>
-              </div>
-              
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={loadData}
-                disabled={isLoading}
-                className="gap-2"
-              >
-                <RefreshCw className="w-4 h-4" />
-                Refresh
-              </Button>
-            </div>
+    <div className="fixed inset-0 overflow-hidden">
+      <div className="hs-canvas absolute inset-0" onClick={clearSelection}>
+        <D3NetworkGraph
+          key={session}
+          nodes={view.nodes}
+          edges={view.edges}
+          focalId={focalId}
+          selectedId={selectedNode?.id ?? null}
+          selectedEdgeKey={selectedEdge ? edgeKey(selectedEdge) : null}
+          expandable={expandable}
+          remaining={remaining}
+          onNodeClick={onNodeClick}
+          onEdgeClick={onEdgeClick}
+          onExpandNode={expandNode}
+        />
+      </div>
+
+      <header className="pointer-events-none absolute inset-x-0 top-0 z-30 px-4 pt-4">
+        <div className="hs-chrome hs-rtl pointer-events-auto flex items-center gap-3 rounded-2xl px-3.5 py-2.5">
+          <button onClick={reset} className="flex items-center gap-2.5 pr-1 transition-opacity hover:opacity-80">
+            <Spline className="h-5 w-5" style={{ color: 'var(--stamp)' }} />
+            <span className="hs-display text-lg font-bold leading-none" style={{ color: 'var(--bone)' }}>
+              הון־שלטון
+            </span>
+            <span
+              className="hs-mono hidden text-[10px] uppercase tracking-[0.18em] sm:inline"
+              style={{ color: 'var(--bone-soft)' }}
+            >
+              Relationship Index
+            </span>
+          </button>
+
+          <div className="h-6 w-px" style={{ background: 'var(--brass-line)' }} />
+
+          <div className="w-full max-w-sm">
+            <SearchBox onSelect={selectEntity} placeholder="חיפוש ישות אחרת…" />
           </div>
+
+          <div className="ml-auto hidden items-center gap-3.5 md:flex">
+            <Stat label="אנשים" value={persons} dot="var(--person)" />
+            <Stat label="ארגונים" value={orgs} dot="var(--org)" />
+            <Stat label="קשרים" value={view.edges.length} dot="var(--brass)" />
+          </div>
+
+          {reviewGate && (
+            <Link
+              to="/review"
+              className="flex items-center rounded-lg px-2 py-2 transition-colors hover:bg-white/5"
+              style={{ color: 'var(--bone-soft)' }}
+            >
+              <ClipboardCheck className="h-[18px] w-[18px]" />
+            </Link>
+          )}
         </div>
-      </div>
+      </header>
 
-      {/* Graph Container */}
-      <div className="absolute inset-0 pt-20">
-        <div className="w-full h-full">
-          <D3NetworkGraph
-            nodes={nodes}
-            edges={edges}
-            onNodeClick={handleNodeClick}
-            hoveredNode={hoveredNode}
-            setHoveredNode={setHoveredNode}
-            expandableNodes={expandableNodes}
-            onExpandNode={handleExpandNode}
-          />
+      {loading && (
+        <div
+          className="hs-chrome hs-rtl absolute left-1/2 top-[4.75rem] z-30 flex -translate-x-1/2 items-center gap-2 rounded-full px-4 py-2 text-sm"
+          style={{ color: 'var(--bone)' }}
+        >
+          <Loader2 className="h-4 w-4 animate-spin" style={{ color: 'var(--brass)' }} />
+          טוען קשרים…
         </div>
-      </div>
+      )}
 
-      {/* Instructions */}
-      <div className="absolute bottom-6 left-6 bg-white/90 backdrop-blur-sm rounded-lg p-4 shadow-lg max-w-sm">
-        <h3 className="font-semibold text-gray-900 mb-2">How to Use</h3>
-        <ul className="text-sm text-gray-600 space-y-1">
-          <li>• <strong>Hover</strong> over nodes to highlight connections</li>
-          <li>• <strong>Click</strong> on nodes to view details</li>
-          <li>• <strong>Drag</strong> to pan around the graph</li>
-          <li>• <strong>Scroll</strong> to zoom in and out</li>
-        </ul>
-      </div>
+      <CategoryFilter active={active} counts={counts} onToggle={toggleCategory} />
 
-      {/* Node Details Panel */}
       <AnimatePresence>
         {selectedNode && (
-          <NodeDetailsPanel
-            node={selectedNode}
-            onClose={closeDetailsPanel}
+          <NodeDetailsPanel node={selectedNode} onClose={clearSelection} onExpand={expandNode} />
+        )}
+        {selectedEdge && (
+          <EdgeDetailsPanel
+            edge={selectedEdge}
+            sourceName={nodeById.get(selectedEdge.source)?.name ?? '—'}
+            targetName={nodeById.get(selectedEdge.target)?.name ?? '—'}
+            onClose={clearSelection}
           />
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+function Stat({ label, value, dot }: { label: string; value: number; dot: string }) {
+  return (
+    <span className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--bone-soft)' }}>
+      <span className="h-2 w-2 rounded-full" style={{ background: dot }} />
+      <b className="hs-mono text-[13px] font-semibold" style={{ color: 'var(--bone)' }}>
+        {value}
+      </b>
+      {label}
+    </span>
   );
 }

@@ -1,10 +1,10 @@
-// Print the current graph (display shape) from the SQLite file — verification.
+// Print the full graph (all statuses, with status + verification) from the
+// SQLite file — a local debug view. The public backend graph serves approved
+// edges only; this dump shows everything for inspecting the pipeline/review.
 //   npm run dump -- [DB_PATH]
 
-import path from 'node:path';
 import { openDb, getGraph } from './db.js';
-
-const DEFAULT_DB = process.env.GRAPH_DB_PATH ?? path.resolve(import.meta.dirname, '../../hon-shilton-backend/server/graph.db');
+import { DEFAULT_DB } from './paths.js';
 
 const db = openDb(process.argv[2] ?? DEFAULT_DB);
 const g = getGraph(db);
