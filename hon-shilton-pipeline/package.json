@@ -4,6 +4,9 @@
   "description": "Local scrape + Claude Code extraction pipeline for Hon Shilton. Writes the SQLite graph DB that the display backend reads.",
   "type": "module",
   "private": true,
+  "engines": {
+    "node": ">=22.5.0"
+  },
   "scripts": {
     "ingest": "NODE_NO_WARNINGS=1 tsx src/ingest.ts",
     "ingest-feed": "NODE_NO_WARNINGS=1 tsx src/ingest-feed.ts",

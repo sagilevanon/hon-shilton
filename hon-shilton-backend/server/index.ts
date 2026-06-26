@@ -41,10 +41,18 @@ app.get('/review/queue', getReviewQueue);
 app.post('/review/:edgeId', postReview);
 app.get('/graph-addition.json', getGraphAddition);
 
-// DB path resolution: CLI arg, then env, then alongside this server.
-const dbPath = process.argv[2] || process.env.GRAPH_DB_PATH || path.join(__dirname, 'graph.db');
+// DB path resolution: CLI arg, then env, then the pipeline-written server/graph.db.
+// Under the compiled build __dirname is dist/server, so resolve back to source server/.
+const compiled = __dirname.endsWith(`${path.sep}dist${path.sep}server`);
+const serverDir = compiled ? path.join(__dirname, '..', '..', 'server') : __dirname;
+const dbPath = process.argv[2] || process.env.GRAPH_DB_PATH || path.join(serverDir, 'graph.db');
 const reviewGate = isFlagOn(process.env.REVIEW_GATE);
-initStore(dbPath, { reviewGate });
+try {
+  initStore(dbPath, { reviewGate });
+} catch (err) {
+  console.error(`Failed to open graph DB at ${dbPath}: ${err instanceof Error ? err.message : err}`);
+  process.exit(1);
+}
 
 app.listen(port, () => {
   console.log(`Hon Shilton API on http://localhost:${port} (db: ${dbPath}, review gate: ${reviewGate ? 'on' : 'off'})`);

@@ -55,7 +55,7 @@ export async function ingestOne(db: DB, ref: FeedRef, opts: IngestOptions, deps:
 
   const fetched = await deps.fetch(ref.url, { tags: ref.tags });
   if (fetched.status !== ArticleStatus.Ok || !fetched.article) {
-    cacheArticle(db, emptyArticle(ref.url), fetched.status);
+    if (!isArticleCached(db, ref.url)) cacheArticle(db, emptyArticle(ref.url), fetched.status);
     return { ...empty, outcome: outcomeOf(fetched.status), reason: fetched.reason };
   }
 
