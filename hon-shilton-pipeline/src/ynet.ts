@@ -79,7 +79,7 @@ function findArticle(node: any): any | null {
 }
 
 function isArticleType(t: string): boolean {
-  return /Article$/i.test(t) || /Article/i.test(t); // NewsArticle, ReportageNewsArticle, Article, ...
+  return /Article/i.test(t);
 }
 
 function isPremium(ld: any): boolean {
