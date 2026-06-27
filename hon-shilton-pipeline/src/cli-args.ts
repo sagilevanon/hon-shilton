@@ -7,6 +7,7 @@ export function parseCli() {
     options: {
       db: { type: 'string' },
       limit: { type: 'string' },
+      concurrency: { type: 'string' },
       'delay-ms': { type: 'string' },
       fixture: { type: 'boolean' },
       force: { type: 'boolean' },

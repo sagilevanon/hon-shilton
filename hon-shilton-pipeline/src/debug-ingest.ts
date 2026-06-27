@@ -10,7 +10,7 @@
 
 import { openDb } from './db.js';
 import { fetchFeed, YNET_FEED_URL } from './rss.js';
-import { runFeed, type FeedOptions } from './feed.js';
+import { runFeed, DEFAULT_CONCURRENCY, type FeedOptions } from './feed.js';
 import { buildDeps } from './pipeline.js';
 import { logReport } from './report.js';
 import { parseCli, firstUrl } from './cli-args.js';
@@ -37,11 +37,12 @@ async function main(): Promise<void> {
     scrapeOnly: values['scrape-only'] ?? false,
     delayMs: values['delay-ms'] != null ? Number(values['delay-ms']) : DEFAULT_DELAY_MS,
     limit: values.limit != null ? Number(values.limit) : 6,
+    concurrency: values.concurrency != null ? Number(values.concurrency) : undefined,
   };
 
   const db = openDb(dbPath);
   console.log(`DB: ${dbPath}`);
-  console.log(`model=${process.env.GRAPH_EXTRACT_MODEL ?? 'opus'} effort=${process.env.GRAPH_EXTRACT_EFFORT ?? '(default)'}`);
+  console.log(`model=${process.env.GRAPH_EXTRACT_MODEL ?? 'opus'} effort=${process.env.GRAPH_EXTRACT_EFFORT ?? '(default)'} concurrency=${opts.concurrency ?? DEFAULT_CONCURRENCY}`);
   if (useFixture) console.warn('⚠  FIXTURE extraction — synthetic, NOT real Claude output.');
 
   const wallStart = performance.now();

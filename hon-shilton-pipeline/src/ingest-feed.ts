@@ -16,6 +16,7 @@ function readOptions(values: Values): FeedOptions {
     scrapeOnly: values['scrape-only'] ?? false,
     delayMs: values['delay-ms'] != null ? Number(values['delay-ms']) : DEFAULT_DELAY_MS,
     limit: values.limit != null ? Number(values.limit) : undefined,
+    concurrency: values.concurrency != null ? Number(values.concurrency) : undefined,
   };
 }
 

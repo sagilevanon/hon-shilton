@@ -47,34 +47,55 @@ export function buildDeps(useFixture: boolean): IngestDeps {
   return { fetch: fetchArticle, extract: useFixture ? fixtureExtractor : extractWithClaude };
 }
 
-export async function ingestOne(db: DB, ref: FeedRef, opts: IngestOptions, deps: IngestDeps): Promise<IngestReport> {
+export type Prepared =
+  | { kind: 'terminal'; report: IngestReport }
+  | { kind: 'extract'; article: ArticleInput };
+
+export async function prepareArticle(db: DB, ref: FeedRef, opts: IngestOptions, deps: IngestDeps): Promise<Prepared> {
   const empty = { url: ref.url, entities: 0, relations: 0 };
 
   if (!opts.force && isArticleCached(db, ref.url)) {
-    return { ...empty, outcome: IngestOutcome.Cached };
+    return terminal({ ...empty, outcome: IngestOutcome.Cached });
   }
 
   const fetched = await deps.fetch(ref.url, { tags: ref.tags });
   if (fetched.status !== ArticleStatus.Ok || !fetched.article) {
     if (!isArticleCached(db, ref.url)) cacheArticle(db, emptyArticle(ref.url), fetched.status);
-    return { ...empty, outcome: outcomeOf(fetched.status), reason: fetched.reason };
+    return terminal({ ...empty, outcome: outcomeOf(fetched.status), reason: fetched.reason });
   }
 
   const article = fetched.article;
   await timed('db_cache', () => cacheArticle(db, article, ArticleStatus.Ok));
   if (opts.scrapeOnly) {
-    return { ...empty, outcome: IngestOutcome.ScrapeOnly, title: article.title };
+    return terminal({ ...empty, outcome: IngestOutcome.ScrapeOnly, title: article.title });
   }
+  return { kind: 'extract', article };
+}
 
-  const result = await timed('extract', () => deps.extract(article));
+export function extractArticle(deps: IngestDeps, article: ArticleInput): Promise<ExtractionResult> {
+  return timed('extract', () => deps.extract(article));
+}
+
+export async function finalizeExtraction(db: DB, article: ArticleInput, result: ExtractionResult): Promise<IngestReport> {
   const relations = await timed('db_store', () => storeExtraction(db, article, result));
   return {
-    url: ref.url,
+    url: article.url,
     outcome: IngestOutcome.Ingested,
     title: article.title,
     entities: result.entities.length,
     relations,
   };
+}
+
+export async function ingestOne(db: DB, ref: FeedRef, opts: IngestOptions, deps: IngestDeps): Promise<IngestReport> {
+  const prepared = await prepareArticle(db, ref, opts, deps);
+  if (prepared.kind === 'terminal') return prepared.report;
+  const result = await extractArticle(deps, prepared.article);
+  return finalizeExtraction(db, prepared.article, result);
+}
+
+function terminal(report: IngestReport): Prepared {
+  return { kind: 'terminal', report };
 }
 
 export function storeExtraction(db: DB, article: ArticleInput, result: ExtractionResult): number {
