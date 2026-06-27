@@ -240,14 +240,54 @@ Notes:
   batch can't fill 5 slots twice. Bigger batches approach ×5; conc=10 measured ×8.0.
 - Phase B compounds parallelism (pool) with batching (1 call/article instead of
   ~8), hence the larger multiple.
-- Phase D caps a stalled call at ~210s + one retry instead of letting it burn the
+- Phase D caps a stalled call at ~300s + one retry instead of letting it burn the
   old 360s timeout — a tail-latency / wasted-slot win, not reflected in the means.
+  (Originally 210s; **raised to 300s after the live run** — see Phase-C results.)
 - These isolate orchestration; a true end-to-end live run (real Claude) is still
   available via `npm run debug-ingest` / `debug-verify` with `--concurrency`.
 
+## Phase C — live eval result (sonnet/default vs prod baseline, 18 re-extractable articles)
+
+Ran `re-extract` (sonnet/default, 600s/conc-3, 0 errors) → `debug-diff` vs the prod
+`graph.db`. Candidate was *richer* (154 vs 119 entities, 105 vs 89 edges). Diff:
+entities common 81 / dropped 38 / added 73; edges common 30 / dropped 59 / added 75 /
+changed 6. Reading the divergences (not just counting):
+
+- **Most divergence is surface-form noise, not semantics.** Two kinds: (1) entity
+  canonical-name variants — `צה"ל` vs `צבא ההגנה לישראל`, `ארה"ב` vs `ארצות הברית`,
+  `כנסת` vs `הכנסת`, `מח"ש` vs the full name, `סנטקום` vs `פיקוד המרכז…`; (2) **glyph
+  inconsistency in names AND relation labels** — Hebrew gershayim `״`/`׳` vs ASCII
+  `"`/`'` (`יו"ר של` vs `יו״ר של`, `ח"כ`/`ח״כ`). Both fragment the same fact into a
+  drop+add pair. Sonnet was even self-inconsistent (emitted both `צה"ל` and `צבא
+  ההגנה לישראל`). → **NEUTRAL semantically, but a real graph-fragmentation cost.**
+- **Relation accuracy is comparable.** Additions carry solid verbatim quotes (no
+  hallucination seen). On the 6 changed edges sonnet mostly picked *more specific*
+  values (`אחר`→`פוליטי`; `מנכ"ל של`, `תבע את` instead of `אחר`) — small
+  IMPROVEMENTS; one went vaguer (rector → `אחר`) — minor regression.
+- **Caveat:** baseline ≠ clean opus/high re-extract, so some "added" reflects
+  article-set/version skew, not model improvement.
+
+**Highest-leverage takeaway (model-independent):** a name+relation-label
+**normalization step** (unify `״/׳` with `"/'`, and a small canonical-name/qid
+gazetteer for high-frequency entities) would merge a large share of these for *both*
+models and lift cross-article corroboration. Worth doing before re-judging models.
+
+**Recommendation:** keep **opus/high** as the documented default for now — sonnet is a
+promising speed/cost candidate with comparable *relation* quality, but it regresses on
+*canonicalization consistency*, and the cheap baseline can't give a clean regression
+count. To switch responsibly: (a) add the normalization step, then (b) re-run the diff
+against a **clean opus/high re-extract** reference. Tooling is in place for both.
+
+**Run-time correction from the live run:** at `--concurrency 5` the 210s deadline
+killed 2/18 genuinely-successful sonnet calls (each then retried — Phase D working as
+intended, but wasting a call); at conc-3 with 600s, 0 errors. Headless `claude` spawns
+are far heavier than raw API calls, so 5 concurrent ones drift past a tight deadline.
+**Default `GRAPH_EXTRACT_TIMEOUT_MS` raised 210s → 300s** (covers the measured ~298s
+solo tail); under sustained load prefer `--concurrency 3–4`.
+
 **Phase C** is tooling-complete (`re-extract` + `debug-diff`); picking a cheaper
-default model/effort still needs a live evaluation run. Until then opus/high stays
-the documented default (`GRAPH_EXTRACT_MODEL`/`GRAPH_EXTRACT_EFFORT`).
+default model/effort still needs the clean-reference run above. Until then opus/high
+stays the documented default (`GRAPH_EXTRACT_MODEL`/`GRAPH_EXTRACT_EFFORT`).
 
 ## Out of scope (revisit only if A–D fall short)
 - Direct Anthropic API / Batch API (would reverse D1 — the no-API-key principle).

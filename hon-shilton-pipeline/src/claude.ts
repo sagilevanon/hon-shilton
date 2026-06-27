@@ -12,7 +12,7 @@ import { withRetry } from './retry.js';
 
 const MODEL = process.env.GRAPH_EXTRACT_MODEL ?? 'opus';
 const EFFORT = process.env.GRAPH_EXTRACT_EFFORT;
-const TIMEOUT_MS = Number(process.env.GRAPH_EXTRACT_TIMEOUT_MS ?? 210_000);
+const TIMEOUT_MS = Number(process.env.GRAPH_EXTRACT_TIMEOUT_MS ?? 300_000);
 const RETRIES = Number(process.env.GRAPH_EXTRACT_RETRIES ?? 1);
 
 export interface ClaudeCall {
