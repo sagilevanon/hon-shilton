@@ -211,6 +211,44 @@ Each phase is independently measurable with the existing debug harness; if a can
 config's divergences show real regressions against the existing records, fall back to a
 safer config (or opus/high) and keep the Phase-A/B/D wins.
 
+---
+
+## Results (after — Phases A, B, D built; C tooling built)
+
+Phases A/B/D change orchestration + reliability, **not the model**, so the win is
+structural and measured by running the *real* `runFeed` / `runVerification` against
+a stub model call of fixed latency (`npm run bench`), then projecting with the
+measured per-call means above. Same code paths, model held constant.
+
+**Simulated (8 articles, 8 edges/article = 64 edges; extract stub 300ms, verify stub 150ms/call):**
+
+| Stage | Before | After (conc=5) | Speedup |
+|---|--:|--:|--:|
+| Extraction (`runFeed`) | 2.41s serial | 0.60s | ×4.0 |
+| Verification (`runVerification`) | 9.63s / 64 calls | 0.30s / **8 calls** | ×31.8 |
+
+**Projected real-world (measured means: extract 115.6s/call, verify 15.6s/call; 8 articles):**
+
+| | Before (serial, opus/high) | After A+B (conc=5) | Speedup |
+|---|--:|--:|--:|
+| Extraction | 15.4 min | 3.9 min | ×4.0 |
+| Verification | 16.6 min (per-edge) | 0.5 min (1 call/article) | ×32 |
+| **End-to-end** | **~32 min** | **~4.4 min** | **×7.3** |
+
+Notes:
+- Phase A's ×4 (not ×5) is `ceil(8/5)=2` extract waves at concurrency 5; an 8-item
+  batch can't fill 5 slots twice. Bigger batches approach ×5; conc=10 measured ×8.0.
+- Phase B compounds parallelism (pool) with batching (1 call/article instead of
+  ~8), hence the larger multiple.
+- Phase D caps a stalled call at ~210s + one retry instead of letting it burn the
+  old 360s timeout — a tail-latency / wasted-slot win, not reflected in the means.
+- These isolate orchestration; a true end-to-end live run (real Claude) is still
+  available via `npm run debug-ingest` / `debug-verify` with `--concurrency`.
+
+**Phase C** is tooling-complete (`re-extract` + `debug-diff`); picking a cheaper
+default model/effort still needs a live evaluation run. Until then opus/high stays
+the documented default (`GRAPH_EXTRACT_MODEL`/`GRAPH_EXTRACT_EFFORT`).
+
 ## Out of scope (revisit only if A–D fall short)
 - Direct Anthropic API / Batch API (would reverse D1 — the no-API-key principle).
 - Caching/reusing the Claude-Code system-prompt cache across spawns (harness-level).

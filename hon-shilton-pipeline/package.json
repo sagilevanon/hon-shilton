@@ -15,6 +15,7 @@
     "verify": "NODE_NO_WARNINGS=1 tsx src/verify-edges.ts",
     "re-extract": "NODE_NO_WARNINGS=1 tsx src/re-extract.ts",
     "debug-diff": "NODE_NO_WARNINGS=1 tsx src/debug-diff.ts",
+    "bench": "NODE_NO_WARNINGS=1 tsx src/bench.ts",
     "dump": "NODE_NO_WARNINGS=1 tsx src/dump.ts",
     "build": "tsc",
     "test": "NODE_NO_WARNINGS=1 node --import tsx --test 'src/**/*.test.ts'"
