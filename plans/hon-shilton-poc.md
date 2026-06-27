@@ -16,6 +16,7 @@ Scan Israeli news, extract **entities** (people, organizations) and their **rela
 - **US-6 (System)** — One real person = exactly one node (deduped), with multi-source corroboration visible on each relationship.
 - **US-7 (System)** — Unsupported / hallucinated relationships are caught automatically before they reach a human reviewer.
 - **US-8 (Reader)** — I can read Hebrew content RTL and filter/understand relationships by category.
+- **US-9 (Reader)** — I can pick two entities and see how they are related through indirect, multi-hop relationship chains — each link still source-backed — without leaving the explorer.
 
 ---
 
@@ -181,6 +182,52 @@ Surface the credibility layer and finish the Hebrew experience. Each edge shows 
 - [ ] An edge with multiple sources shows multiple chips and its corroboration is visually evident.
 
 ---
+
+## Phase 8: Connection finder — "how are these two related?"
+
+> **Status: PLANNED** — design resolved in the 2026-06-27 grilling session (decision tree captured below). A second read feature, layered onto the existing egocentric explorer (no new page): the reader picks two entities and the system surfaces the indirect, multi-hop routes connecting them, rendered on top of the current view. Selection count drives the experience — one entity = today's egocentric explorer; a second endpoint = the connection overlay.
+
+**User stories**: US-9
+
+### What to build
+While exploring, the reader designates a **second endpoint** — by clicking a displayed node *or* typing a name (which may resolve to a currently-hidden entity) — and the explorer overlays up to **K=5 distinct shortest paths** between the two, pulling in any hidden intermediaries the routes pass through. The connection is computed by a new backend endpoint over the visible graph and rendered in a **focus mode** (routes lit up, the surrounding graph dimmed as context), with each route edge still click-through to its sources.
+
+### Design decisions (resolved)
+
+**Algorithm**
+- **Output:** up to **K = 5** *distinct* shortest paths, shortest first (`k` is a server constant, not a query param).
+- **Traversal:** **undirected** — the edge `directed` flag is ignored while walking, but preserved per-edge for display arrows/phrasing.
+- **Distinctness:** **vertex-disjoint intermediates**, found **greedily** (best path → ban its intermediate nodes → repeat up to K). Shared-hub depth is not lost: a hub edge carries all its relations/sources, one click down in `EdgeDetailsPanel`.
+- **"Shortest":** **hop count primary**, tie-broken by **weakest-link credibility** — a chain is only as strong as its flimsiest edge, so rank by max-of-min corroboration, then confidence.
+- **Hop depth:** user-controlled, **default 3**, hard server cap **6**.
+- **Hub handling (hard exclusion):** a **relative top-percentile degree** cutoff applied to **intermediaries only** (the two endpoints are always allowed), **default-on** with an **"include major hubs"** override toggle, plus a **manual `exclude` list** layered on top. Whenever the cutoff suppresses something (a route or the whole result), the UI says so explicitly — **never a silent empty result**.
+
+**Backend API**
+- `GET /subgraph?from=&to=&maxHops=&exclude=&includeHubs=`
+- **Response:** `{ from, to, paths: [{ nodes:[ids], edges:[ids], hops }], nodes:[<display Node>], edges:[<display Edge + sources[]>], suppressedHubs }` — returns **both** the abstract paths (for ranking/highlighting) **and** a flat display-shape union (so the existing D3 graph + `EdgeDetailsPanel` render with no extra fetches).
+- **Status codes:** `400` missing/malformed `from`/`to` · `422` non-integer values *or* `from === to` (well-formed but unprocessable) · `404` an entity id with no matching entity · `503` DB not ready · **`200` + `paths: []`** for "entities exist, no connection within `maxHops`" (a successful negative answer — carries `suppressedHubs` + the widen-search affordances). *(Note: this diverges from the existing `400`-on-non-integer convention in `getNeighbors`/`postReview`; left as-is on the old endpoints, done "right" on the new one — a future cleanup could align them.)*
+- Respects the visible-edge gate (reuse `visibleEdgeCondition`).
+
+**Implementation split** (`WITH RECURSIVE`, no new dependency — SQLite is the off-the-shelf traversal engine, already a dep)
+- **`graphStore.ts`** — `shortestPath(from, to, excludeIds, maxHops)` via a recursive CTE returning the single best path (fewest hops, then weakest-link) avoiding an exclude set; degree data for the percentile; reuse `entitiesByIds` + `withSources` to hydrate.
+- **`paths.ts`** (new, pure logic, no SQL) — the greedy K-loop, the relative hub threshold, exclude-set assembly, `suppressedHubs` accounting, and final `{ paths, nodes, edges }` assembly.
+- **`endpoints.ts`** — a thin `getSubgraph` handler (param validation + the status mapping above).
+- **pipeline `db.ts`** — add `idx_edges_src` + `idx_edges_tgt` (today's only indexes are on entity name / alias; the recursive adjacency and `getNeighbors` both query `src_entity_id OR tgt_entity_id`). Schema lives in the pipeline (its single owner); the indexes apply on the next pipeline run.
+
+**Frontend** (inside the existing explorer — `Pages/NetworkGraph.tsx`; `Landing` unchanged)
+- **Both endpoints user-chosen.** Gesture: a **"trace connection"** button in `NodeDetailsPanel` arms a "pick the other endpoint" state; the second endpoint is then chosen by **clicking a displayed node** *or* **typing a name** (`SearchBox` → `/search`). Always calls `/subgraph` (server-authoritative — surfaces hidden intermediaries even when the second endpoint is already visible).
+- **Focus-mode rendering:** dim non-route nodes/edges, light up routes (opacity + weight + glow), **category colors preserved** on route edges, endpoints distinctly marked (origin / destination rings), **edge-click provenance intact**.
+- **Control strip** (visible while a connection is active): hop slider (default 3, range 2–6), "include major hubs" toggle, the `suppressedHubs` notice, removable **excluded-node chips** (fed by an "exclude from paths" action), an "A ↔ B" endpoint summary, and a **clear ✕** that exits connection mode but **keeps the accumulated graph**. The **no-path** state lives here ("no connection within N steps — [increase] / [include hubs]").
+- **One active connection at a time** — a new connection replaces the previous overlay.
+
+### Acceptance criteria
+- [ ] `GET /subgraph?from=&to=` returns up to 5 vertex-disjoint shortest paths plus the flat node/edge union, shortest first.
+- [ ] Two entities connected only via a multi-hop chain (no direct edge) return the connecting path(s); two with no connection within `maxHops` return `200` + `paths: []`.
+- [ ] The hub cutoff suppresses routes through mega-hubs by default, reports `suppressedHubs`, and the "include major hubs" toggle restores them; a manual `exclude` list is honored.
+- [ ] Status codes are correct: `422` on `from === to`, `404` on an unknown entity, `400` on missing params, `503` before the DB exists.
+- [ ] In the explorer, "trace connection" + a second endpoint (chosen by click **and** by typing a hidden name) overlays the routes in focus mode, preserving category colors and edge-click provenance.
+- [ ] Adjusting the hop slider, toggling hubs, and removing an exclude chip each re-run the search and update the overlay; "clear" returns to normal exploration with the graph intact.
+- [ ] Backend `node:test` covers `paths.ts` (shortest, multi-hop, disjoint-K, no-path, hub exclusion + override, manual exclude, the 400/422/404 cases); `tests/phase8.spec.ts` covers the UI flow end-to-end.
 
 ## Suggested verification per phase
 

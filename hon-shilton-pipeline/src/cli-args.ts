@@ -14,6 +14,7 @@ export function parseCli() {
       'delay-ms': { type: 'string' },
       fixture: { type: 'boolean' },
       force: { type: 'boolean' },
+      normalize: { type: 'boolean' },
       'scrape-only': { type: 'boolean' },
     },
   });

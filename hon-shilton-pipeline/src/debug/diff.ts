@@ -5,10 +5,15 @@
 // url + quote so divergences can be judged, not just counted.
 
 import type { GraphNode, GraphEdge } from '../db.js';
+import { normalize } from '../normalize.js';
 
 export interface GraphData {
   nodes: GraphNode[];
   edges: GraphEdge[];
+}
+
+export interface DiffOptions {
+  normalizeKeys?: boolean;
 }
 
 export interface EdgeRef {
@@ -30,17 +35,19 @@ export interface GraphDiff {
   edges: { dropped: EdgeRef[]; added: EdgeRef[]; changed: EdgeChange[]; common: number };
 }
 
-const entityKey = (n: GraphNode): string => n.qid ?? n.name;
+type KeyFn = (s: string) => string;
+
+const entityKey = (n: GraphNode, key: KeyFn): string => n.qid ?? key(n.name);
 
 function nameMap(nodes: GraphNode[]): Map<number, string> {
   return new Map(nodes.map((n) => [n.id, n.name]));
 }
 
-function edgeKey(e: GraphEdge, nameOf: Map<number, string>): string {
-  const s = nameOf.get(e.source) ?? String(e.source);
-  const t = nameOf.get(e.target) ?? String(e.target);
+function edgeKey(e: GraphEdge, nameOf: Map<number, string>, key: KeyFn): string {
+  const s = key(nameOf.get(e.source) ?? String(e.source));
+  const t = key(nameOf.get(e.target) ?? String(e.target));
   const [a, b] = e.directed ? [s, t] : [s, t].sort();
-  return `${e.directed ? 'D' : 'U'}${a}${e.relation}${b}`;
+  return `${e.directed ? 'D' : 'U'}${a}${key(e.relation)}${b}`;
 }
 
 function edgeRef(e: GraphEdge, nameOf: Map<number, string>): EdgeRef {
@@ -54,17 +61,18 @@ function edgeRef(e: GraphEdge, nameOf: Map<number, string>): EdgeRef {
   };
 }
 
-export function diffGraphs(base: GraphData, candidate: GraphData): GraphDiff {
-  const baseEntities = new Map(base.nodes.map((n) => [entityKey(n), n.name]));
-  const candEntities = new Map(candidate.nodes.map((n) => [entityKey(n), n.name]));
+export function diffGraphs(base: GraphData, candidate: GraphData, opts: DiffOptions = {}): GraphDiff {
+  const key: KeyFn = opts.normalizeKeys ? normalize : (s) => s;
+  const baseEntities = new Map(base.nodes.map((n) => [entityKey(n, key), n.name]));
+  const candEntities = new Map(candidate.nodes.map((n) => [entityKey(n, key), n.name]));
   const onlyBase = [...baseEntities].filter(([k]) => !candEntities.has(k)).map(([, name]) => name);
   const onlyCandidate = [...candEntities].filter(([k]) => !baseEntities.has(k)).map(([, name]) => name);
   const commonEntities = [...baseEntities.keys()].filter((k) => candEntities.has(k)).length;
 
   const baseNames = nameMap(base.nodes);
   const candNames = nameMap(candidate.nodes);
-  const baseEdges = new Map(base.edges.map((e) => [edgeKey(e, baseNames), e]));
-  const candEdges = new Map(candidate.edges.map((e) => [edgeKey(e, candNames), e]));
+  const baseEdges = new Map(base.edges.map((e) => [edgeKey(e, baseNames, key), e]));
+  const candEdges = new Map(candidate.edges.map((e) => [edgeKey(e, candNames, key), e]));
 
   const dropped: EdgeRef[] = [];
   const changed: EdgeChange[] = [];

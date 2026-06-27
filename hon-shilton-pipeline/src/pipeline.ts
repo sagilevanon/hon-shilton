@@ -3,8 +3,9 @@ import { cacheArticle, isArticleCached, upsertEntity, findOrCreateEdge, addSourc
 import { fetchArticle, type FetchResult } from './ynet.js';
 import { extractWithClaude, extractFixture } from './extract.js';
 import { categoryOf, SYMMETRIC_RELATIONS } from './taxonomy.js';
+import { normalize } from './normalize.js';
 import { timed } from './debug/instrument.js';
-import type { ArticleInput, ExtractionResult } from './types.js';
+import type { ArticleInput, ExtractionResult, ExtractedEntity } from './types.js';
 
 export enum IngestOutcome {
   Ingested = 'ingested',
@@ -100,21 +101,25 @@ function terminal(report: IngestReport): Prepared {
 
 export function storeExtraction(db: DB, article: ArticleInput, result: ExtractionResult): number {
   const idByName = new Map<string, number>();
-  for (const entity of result.entities) idByName.set(entity.canonical_name, upsertEntity(db, entity));
+  for (const entity of result.entities) {
+    const normalized = normalizeEntity(entity);
+    idByName.set(normalized.canonical_name, upsertEntity(db, normalized));
+  }
 
   let stored = 0;
   for (const relation of result.relations) {
-    const src = idByName.get(relation.source);
-    const tgt = idByName.get(relation.target);
+    const src = idByName.get(normalize(relation.source));
+    const tgt = idByName.get(normalize(relation.target));
     if (src == null || tgt == null) continue;
 
-    const directed = SYMMETRIC_RELATIONS.has(relation.relation) ? false : relation.directed;
+    const rel = normalize(relation.relation);
+    const directed = SYMMETRIC_RELATIONS.has(rel) ? false : relation.directed;
     const edgeId = findOrCreateEdge(db, {
       src,
       tgt,
-      relation: relation.relation,
-      category: relation.category ?? categoryOf(relation.relation),
-      raw_phrase: relation.raw_phrase,
+      relation: rel,
+      category: relation.category ?? categoryOf(rel),
+      raw_phrase: relation.raw_phrase ? normalize(relation.raw_phrase) : relation.raw_phrase,
       directed,
       confidence: relation.confidence,
     });
@@ -127,6 +132,10 @@ export function storeExtraction(db: DB, article: ArticleInput, result: Extractio
     stored++;
   }
   return stored;
+}
+
+function normalizeEntity(e: ExtractedEntity): ExtractedEntity {
+  return { ...e, canonical_name: normalize(e.canonical_name), aliases: e.aliases?.map(normalize) };
 }
 
 function emptyArticle(url: string): ArticleInput {

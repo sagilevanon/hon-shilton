@@ -19,10 +19,11 @@ function main(): void {
 
   const base = getGraph(openDb(values.base));
   const cand = getGraph(openDb(candidate));
-  const diff = diffGraphs(base, cand);
+  const diff = diffGraphs(base, cand, { normalizeKeys: values.normalize ?? false });
 
   console.log(`baseline:  ${values.base}  (${base.nodes.length} entities, ${base.edges.length} edges)`);
-  console.log(`candidate: ${candidate}  (${cand.nodes.length} entities, ${cand.edges.length} edges)\n`);
+  console.log(`candidate: ${candidate}  (${cand.nodes.length} entities, ${cand.edges.length} edges)`);
+  console.log(`keys: ${values.normalize ? 'NORMALIZED' : 'raw'}\n`);
 
   console.log('================ ENTITIES ================');
   console.log(`common: ${diff.entities.common}  dropped: ${diff.entities.onlyBase.length}  added: ${diff.entities.onlyCandidate.length}`);

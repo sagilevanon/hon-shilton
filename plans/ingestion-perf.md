@@ -361,6 +361,29 @@ yield (it protects the ownership/funding ties that matter most), and only after
 adding the **name/relation-label normalization** step. Avoid 4.8/medium (low speed
 gain, drops ownership), 4.7/medium (−17%), and 4.7/xhigh (slow, drops ownership).
 
+### Normalization — Layer 1 (glyph) built; measured impact small (Layer 2 is the lever)
+
+Layer 1 (`normalize.ts`, applied in `storeExtraction`): NFC + unify ASCII `"`/`'` and
+smart quotes to Hebrew gershayim `״`/geresh `׳` (the form `taxonomy.ts` already uses) +
+whitespace. Merges within-run glyph jitter (`יו"ר של`↔`יו״ר של`, `צה"ל`↔`צה״ל`) onto one
+node/edge — proven by `normalize.test.ts`.
+
+Quantified via `debug-diff --normalize` over the existing eval DBs (no new calls):
+
+| diff | edges common: raw → normalized |
+|---|---|
+| opus-4.7/high vs 4.8/high (cross-family) | 45 → 47 (+2) |
+| opus-4.8/medium vs 4.8/high (same-family) | 65 → 65 (0) |
+
+**Finding:** glyph noise is a *small* fraction of the divergence. The dominant
+fragmentation is **true synonyms** — definite-article variants (`כנסת`/`הכנסת`,
+`צבא הגנה`/`צבא ההגנה`), acronym↔full-name (`מח״ש`/`המחלקה לחקירות שוטרים`,
+`סנטקום`/`פיקוד המרכז`), alternate phrasings (`הצבא הלבנוני`/`צבא לבנון`). Same-family
+opus is glyph-consistent (0 churn); the glyph gap only appears cross-family and is ~2
+edges. **Layer 1 is kept** (correct, safe, free, fixes within-model jitter in
+production) but **Layer 2 — a curated QID/canonical gazetteer + definite-article
+handling — is where the real corroboration gains are** and is the recommended next step.
+
 **Phase C** is tooling-complete (`re-extract` + `debug-diff`) and now exercised live
 across five model/effort configs. **Decision (2026-06-27): the pipeline default is now
 opus-4.7/high** (`claude.ts` `resolveModelConfig`: `GRAPH_EXTRACT_MODEL=claude-opus-4-7`,
