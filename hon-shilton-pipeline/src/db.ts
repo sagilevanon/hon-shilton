@@ -96,6 +96,20 @@ export function isArticleCached(db: DB, url: string): boolean {
   return !!row;
 }
 
+// All successfully-cached article bodies, as extractor inputs. Lets a candidate
+// model/effort config be re-extracted over the exact same text — no re-fetch.
+export function getCachedArticles(db: DB, limit?: number): ArticleInput[] {
+  const lim = limit != null ? ' LIMIT ?' : '';
+  const params = limit != null ? [ArticleStatus.Ok, Number(limit)] : [ArticleStatus.Ok];
+  const rows = db
+    .prepare(
+      `SELECT url, title, raw_body AS body, outlet, published_date AS publishedDate, author
+       FROM articles WHERE status = ? AND raw_body IS NOT NULL AND raw_body != '' ORDER BY id${lim}`,
+    )
+    .all(...params) as unknown as Array<ArticleInput & { outlet: string | null }>;
+  return rows.map((r) => ({ ...r, outlet: r.outlet ?? 'ynet' }));
+}
+
 function resolveEntity(db: DB, e: ExtractedEntity): {id: number} | undefined {
   if (e.qid) {
     const byQid = db.prepare('SELECT id FROM entities WHERE qid = ?').get(e.qid) as {id: number} | undefined;
