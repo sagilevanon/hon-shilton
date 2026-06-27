@@ -6,6 +6,7 @@
 
 import type { GraphNode, GraphEdge } from '../db.js';
 import { normalize } from '../normalize.js';
+import { lookupGazetteer } from '../gazetteer.js';
 
 export interface GraphData {
   nodes: GraphNode[];
@@ -14,6 +15,15 @@ export interface GraphData {
 
 export interface DiffOptions {
   normalizeKeys?: boolean;
+  gazetteerKeys?: boolean;
+}
+
+// Gazetteer-canonicalizing key: fold a known synonym onto its QID (else canonical
+// name) so the same real entity keys identically across two graphs even when the
+// model spelled it differently; everything else falls back to glyph-normalization.
+function gazetteerKey(s: string): string {
+  const m = lookupGazetteer(s);
+  return m ? m.qid ?? m.canonical_name : normalize(s);
 }
 
 export interface EdgeRef {
@@ -62,7 +72,7 @@ function edgeRef(e: GraphEdge, nameOf: Map<number, string>): EdgeRef {
 }
 
 export function diffGraphs(base: GraphData, candidate: GraphData, opts: DiffOptions = {}): GraphDiff {
-  const key: KeyFn = opts.normalizeKeys ? normalize : (s) => s;
+  const key: KeyFn = opts.gazetteerKeys ? gazetteerKey : opts.normalizeKeys ? normalize : (s) => s;
   const baseEntities = new Map(base.nodes.map((n) => [entityKey(n, key), n.name]));
   const candEntities = new Map(candidate.nodes.map((n) => [entityKey(n, key), n.name]));
   const onlyBase = [...baseEntities].filter(([k]) => !candEntities.has(k)).map(([, name]) => name);

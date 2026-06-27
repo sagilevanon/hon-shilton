@@ -6,6 +6,7 @@ import {DatabaseSync} from 'node:sqlite';
 import {ArticleStatus} from './article-status.js';
 import {Verification} from './verification-status.js';
 import {EdgeStatus} from './edge-status.js';
+import {canonicalizeEntity} from './gazetteer.js';
 import type {ArticleInput, ExtractedEntity, SourceInput} from './types.js';
 
 export type DB = DatabaseSync;
@@ -128,8 +129,11 @@ function resolveEntity(db: DB, e: ExtractedEntity): {id: number} | undefined {
 
 // Resolve an entity QID-first, canonical-name-second, alias-third (only when the
 // alias maps to a single entity); insert if new; merge aliases. This is what keeps
-// one real person on one node as it recurs across articles.
-export function upsertEntity(db: DB, e: ExtractedEntity): number {
+// one real person on one node as it recurs across articles. The gazetteer
+// (Layer 2) first folds known synonym spellings onto one canonical name + QID so
+// the resolution below collapses them, keeping the original spelling as an alias.
+export function upsertEntity(db: DB, raw: ExtractedEntity): number {
+  const e = canonicalizeEntity(raw);
   const row = resolveEntity(db, e);
 
   let id: number;

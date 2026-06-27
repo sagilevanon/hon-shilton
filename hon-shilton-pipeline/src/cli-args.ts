@@ -15,6 +15,7 @@ export function parseCli() {
       fixture: { type: 'boolean' },
       force: { type: 'boolean' },
       normalize: { type: 'boolean' },
+      gazetteer: { type: 'boolean' },
       'scrape-only': { type: 'boolean' },
     },
   });

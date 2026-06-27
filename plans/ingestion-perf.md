@@ -384,6 +384,42 @@ edges. **Layer 1 is kept** (correct, safe, free, fixes within-model jitter in
 production) but **Layer 2 — a curated QID/canonical gazetteer + definite-article
 handling — is where the real corroboration gains are** and is the recommended next step.
 
+### Normalization — Layer 2 (gazetteer) — built; recovers the cross-article merges Layer 1 left on the table
+
+`gazetteer.ts`: a curated, high-precision const map of the ~21 highest-frequency
+Israeli entities, each `{ canonical_name, qid?, variants[] }`. Seeded from the live
+model-divergence dumps (the "only in baseline / only in candidate" entity lists from
+`debug-diff`). It folds the synonym classes Layer 1 cannot: acronym↔full-name
+(`צה״ל`/`צבא ההגנה לישראל`, `מח״ש`/`המחלקה לחקירות שוטרים`, `סנטקום`/`פיקוד המרכז`),
+definite-article variants (`כנסת`/`הכנסת`, `ליכוד`/`הליכוד`) handled conservatively by
+listing both forms per entry (no global ה-strip), and alternate phrasings
+(`הצבא הלבנוני`/`צבא לבנון`). Resolution is **resolve-time in `db.ts`**: `upsertEntity`
+runs `canonicalizeEntity` first, which rewrites a matched variant to the canonical name,
+**backfills its QID** (only QIDs verified in the production graph are curated, so a wrong
+QID can't fan out a bad merge), and keeps the original spelling as an alias so search still
+finds it — then the existing QID→canonical→alias resolution collapses the occurrences.
+Matching runs names through `normalize` first, so Layer 1 (glyph) and Layer 2 (synonym)
+compose. Proven by `gazetteer.test.ts` (variant lookup + two cross-article
+`storeExtraction` merges: `כנסת`+`הכנסת` and `צה״ל`+`צבא ההגנה לישראל` each collapse to one
+node with corroboration `value`=2).
+
+Measured **free** (no Claude calls) via a new `debug-diff --gazetteer` key mode
+(`diff.ts` `gazetteerKey`: fold a synonym onto its QID-or-canonical, else glyph-normalize),
+run over the existing eval DBs. Common entities/edges rising = churn falling:
+
+| diff (same article bodies) | edges common: raw → normalized → **gazetteer** | entities dropped/added: raw → **gazetteer** |
+|---|---|---|
+| opus-4.7/high vs 4.8/high (the new default vs the max-fidelity ref) | 45 → 47 → **55** (+8 over Layer 1) | 82/88 → **79/86** |
+| opus-4.8/med vs 4.8/high (same family, effort gap) | 65 → 65 → **69** (+4) | 24/23 → **22/20** |
+
+**Finding:** where Layer 1 recovered ~2 cross-family edges, Layer 2 recovers **8 more on
+top** (a +17% lift in cross-model edge agreement for the default config) — confirming the
+prediction that true synonyms, not glyph noise, were the dominant fragmentation. Within a
+single extraction run the collapse is ~0 (a model is self-consistent within one run); the
+gain is entirely **cross-article/cross-run corroboration**, exactly what the served graph's
+edge-thickness depends on. Both layers are kept; the gazetteer is the lever and is extended
+by adding entries (regenerate variant lists from `debug-diff` dumps as the corpus grows).
+
 **Phase C** is tooling-complete (`re-extract` + `debug-diff`) and now exercised live
 across five model/effort configs. **Decision (2026-06-27): the pipeline default is now
 opus-4.7/high** (`claude.ts` `resolveModelConfig`: `GRAPH_EXTRACT_MODEL=claude-opus-4-7`,
