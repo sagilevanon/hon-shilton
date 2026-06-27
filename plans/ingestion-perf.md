@@ -285,9 +285,44 @@ are far heavier than raw API calls, so 5 concurrent ones drift past a tight dead
 **Default `GRAPH_EXTRACT_TIMEOUT_MS` raised 210s → 300s** (covers the measured ~298s
 solo tail); under sustained load prefer `--concurrency 3–4`.
 
-**Phase C** is tooling-complete (`re-extract` + `debug-diff`); picking a cheaper
-default model/effort still needs the clean-reference run above. Until then opus/high
-stays the documented default (`GRAPH_EXTRACT_MODEL`/`GRAPH_EXTRACT_EFFORT`).
+### Phase C — round 2: opus lower-effort, against a clean opus-4.8/high reference
+
+Re-extracted the same 18 cached bodies under three configs (600s/conc-3, 0 errors
+each) and diffed the two candidates against the **clean opus-4.8/high** reference
+(same-family → far less canonicalization noise than the sonnet diff).
+
+| config | entities | edges | edge yield vs high |
+|---|--:|--:|--:|
+| **opus-4.8 / high** (reference) | 155 | 117 | — |
+| opus-4.8 / medium | 154 | 108 | **−8%** |
+| opus-4.7 / medium | 157 | 97 | **−17%** |
+
+Entity *recognition* is ~equal across all three (~155); effort/version shows up in
+**relation richness**, not who gets recognized.
+
+- **opus-4.8/medium ≈ high, with a small real cost.** 131/155 entities (85%) and a
+  large share of the edge churn is the same fact re-surfaced as a *more specific*
+  relation (`אחר`→`יו״ר של`/`חבר ב`/`תבע את`, murder edge `אחר`→`משפטי`) or a naming
+  twin — i.e. NEUTRAL/IMPROVEMENT. The genuine cost: a few **high-value relations
+  flattened or dropped** — 3 media-ownership edges lost their `[בעלים של]`
+  (אגודת ישראל→המודיע, דגל התורה→יתד נאמן, ש"ס→הדרך), a sibling tie
+  (נתניהו↔יונתן `[אח/אחות של]`) dropped, some "mediates-between" diplomacy
+  flattened — plus a mild tendency to **lower confidence** (several high→med). For a
+  project whose point is ownership/funding ties, those `[בעלים של]` losses are the
+  one thing to weigh.
+- **opus-4.7/medium is meaningfully worse.** Only 77/155 entities (50%) and 31/117
+  edges (26%) common, −17% yield, and noticeably different canonicalization
+  (בג"ץ, עיריית בני ברק vs מועצת העיר…). Lower coverage *and* less consistent — no
+  upside over 4.8/medium.
+
+**Recommendation:** keep **opus-4.8/high** as the default for best fidelity (esp.
+ownership relations). If a latency/cost cut is needed, **opus-4.8/medium** is the
+viable candidate — small, identifiable quality cost — and should be paired with the
+name/relation-label **normalization step** (it would also dissolve most of the churn
+above, which is naming, not semantics). **opus-4.7/medium: not recommended.**
+
+**Phase C** is tooling-complete (`re-extract` + `debug-diff`) and now exercised live.
+Default stays opus/high (`GRAPH_EXTRACT_MODEL`/`GRAPH_EXTRACT_EFFORT`).
 
 ## Out of scope (revisit only if A–D fall short)
 - Direct Anthropic API / Batch API (would reverse D1 — the no-API-key principle).
