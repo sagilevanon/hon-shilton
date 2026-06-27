@@ -9,6 +9,7 @@
 import { openDb } from './db.js';
 import { reExtract } from './reextract.js';
 import { buildDeps } from './pipeline.js';
+import { resolveModelConfig } from './claude.js';
 import { parseCli } from './cli-args.js';
 
 async function main(): Promise<void> {
@@ -22,7 +23,8 @@ async function main(): Promise<void> {
   const dst = openDb(values.db);
 
   console.log(`re-extract: ${values.from} → ${values.db}`);
-  console.log(`model=${process.env.GRAPH_EXTRACT_MODEL ?? 'opus'} effort=${process.env.GRAPH_EXTRACT_EFFORT ?? '(default)'}`);
+  const cfg = resolveModelConfig();
+  console.log(`model=${cfg.model} effort=${cfg.effort}`);
   if (useFixture) console.warn('⚠  FIXTURE extraction — synthetic, NOT real Claude output.');
 
   const report = await reExtract(src, dst, buildDeps(useFixture), {

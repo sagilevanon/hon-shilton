@@ -1,7 +1,7 @@
 // One headless Claude Code call, shared by every model-backed stage (extraction,
 // verification). No Anthropic API SDK, no API key — uses the local `claude` login:
 //   claude -p "<prompt>" --output-format json --json-schema <schema> \
-//          --append-system-prompt "<instructions>" --model opus
+//          --append-system-prompt "<instructions>" --model claude-opus-4-7 --effort high
 // Returns the envelope's `structured_output`; the caller narrows it to its schema.
 // Timeouts, `is_error` envelopes (e.g. "Response stalled mid-stream") and crashes
 // are retried once (GRAPH_EXTRACT_RETRIES) before the call is given up on.
@@ -10,10 +10,21 @@ import { spawn } from 'node:child_process';
 import { recordClaude, TIMING_ENABLED } from './debug/instrument.js';
 import { withRetry } from './retry.js';
 
-const MODEL = process.env.GRAPH_EXTRACT_MODEL ?? 'opus';
-const EFFORT = process.env.GRAPH_EXTRACT_EFFORT;
 const TIMEOUT_MS = Number(process.env.GRAPH_EXTRACT_TIMEOUT_MS ?? 300_000);
 const RETRIES = Number(process.env.GRAPH_EXTRACT_RETRIES ?? 1);
+
+// Default model/effort, chosen by the Phase-C diff eval (plans/ingestion-perf.md):
+// opus-4.7/high is ~2.5x faster than opus-4.8/high for a bounded yield cost and
+// preserves the ownership/funding relations. Override per-run via the env vars.
+export const DEFAULT_MODEL = 'claude-opus-4-7';
+export const DEFAULT_EFFORT = 'high';
+
+export function resolveModelConfig(env: NodeJS.ProcessEnv = process.env): { model: string; effort: string } {
+  return {
+    model: env.GRAPH_EXTRACT_MODEL ?? DEFAULT_MODEL,
+    effort: env.GRAPH_EXTRACT_EFFORT ?? DEFAULT_EFFORT,
+  };
+}
 
 export interface ClaudeCall {
   prompt: string;
@@ -44,6 +55,7 @@ export function runClaude(call: ClaudeCall): Promise<unknown> {
 }
 
 function runClaudeOnce(call: ClaudeCall): Promise<unknown> {
+  const { model, effort } = resolveModelConfig();
   const args = [
     '-p',
     call.prompt,
@@ -54,8 +66,9 @@ function runClaudeOnce(call: ClaudeCall): Promise<unknown> {
     '--append-system-prompt',
     call.systemPrompt,
     '--model',
-    MODEL,
-    ...(EFFORT ? ['--effort', EFFORT] : []),
+    model,
+    '--effort',
+    effort,
   ];
 
   return new Promise((resolve, reject) => {

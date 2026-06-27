@@ -7,6 +7,7 @@
 
 import { openDb } from './db.js';
 import { runVerification, buildVerifyDeps, type VerifyOptions } from './verification.js';
+import { resolveModelConfig } from './claude.js';
 import { parseCli } from './cli-args.js';
 import { TIMING_ENABLED, getClaudeSamples, getSamples } from './debug/instrument.js';
 import { printStepTable, printClaudeBreakdown } from './debug/report.js';
@@ -31,7 +32,8 @@ async function main(): Promise<void> {
 
   const db = openDb(dbPath);
   console.log(`DB: ${dbPath}`);
-  console.log(`model=${process.env.GRAPH_EXTRACT_MODEL ?? 'opus'} effort=${process.env.GRAPH_EXTRACT_EFFORT ?? '(default)'}`);
+  const cfg = resolveModelConfig();
+  console.log(`model=${cfg.model} effort=${cfg.effort}`);
   if (useFixture) console.warn('⚠  FIXTURE verification — synthetic verdicts, NOT real Claude output.');
 
   const wallStart = performance.now();

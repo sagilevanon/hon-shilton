@@ -362,9 +362,11 @@ adding the **name/relation-label normalization** step. Avoid 4.8/medium (low spe
 gain, drops ownership), 4.7/medium (−17%), and 4.7/xhigh (slow, drops ownership).
 
 **Phase C** is tooling-complete (`re-extract` + `debug-diff`) and now exercised live
-across five model/effort configs. Default stays opus-4.8/high; opus-4.7/high is the
-documented speed alternative (`GRAPH_EXTRACT_MODEL=claude-opus-4-7
-GRAPH_EXTRACT_EFFORT=high`).
+across five model/effort configs. **Decision (2026-06-27): the pipeline default is now
+opus-4.7/high** (`claude.ts` `resolveModelConfig`: `GRAPH_EXTRACT_MODEL=claude-opus-4-7`,
+`GRAPH_EXTRACT_EFFORT=high`) for the ~2.5× speedup; set `GRAPH_EXTRACT_MODEL=claude-opus-4-8`
+for maximum fidelity. The name/relation-label **normalization step** is the recommended
+follow-up before relying on cross-article corroboration under the new default.
 
 ## Out of scope (revisit only if A–D fall short)
 - Direct Anthropic API / Batch API (would reverse D1 — the no-API-key principle).

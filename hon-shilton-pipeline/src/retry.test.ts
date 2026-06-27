@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { withRetry } from './retry.js';
-import { isErrorEnvelope } from './claude.js';
+import { isErrorEnvelope, resolveModelConfig, DEFAULT_MODEL, DEFAULT_EFFORT } from './claude.js';
 
 const always = () => true;
 
@@ -45,6 +45,23 @@ describe('withRetry', () => {
       /config/,
     );
     assert.equal(calls, 1);
+  });
+});
+
+describe('resolveModelConfig', () => {
+  it('defaults to opus-4.7/high', () => {
+    assert.deepEqual(resolveModelConfig({}), { model: 'claude-opus-4-7', effort: 'high' });
+    assert.equal(DEFAULT_MODEL, 'claude-opus-4-7');
+    assert.equal(DEFAULT_EFFORT, 'high');
+  });
+
+  it('lets the env override model and effort independently', () => {
+    assert.deepEqual(resolveModelConfig({ GRAPH_EXTRACT_MODEL: 'sonnet' }), { model: 'sonnet', effort: 'high' });
+    assert.deepEqual(resolveModelConfig({ GRAPH_EXTRACT_EFFORT: 'low' }), { model: 'claude-opus-4-7', effort: 'low' });
+    assert.deepEqual(
+      resolveModelConfig({ GRAPH_EXTRACT_MODEL: 'claude-opus-4-8', GRAPH_EXTRACT_EFFORT: 'medium' }),
+      { model: 'claude-opus-4-8', effort: 'medium' },
+    );
   });
 });
 

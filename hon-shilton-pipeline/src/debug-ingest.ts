@@ -12,6 +12,7 @@ import { openDb } from './db.js';
 import { fetchFeed, YNET_FEED_URL } from './rss.js';
 import { runFeed, DEFAULT_CONCURRENCY, type FeedOptions } from './feed.js';
 import { buildDeps } from './pipeline.js';
+import { resolveModelConfig } from './claude.js';
 import { logReport } from './report.js';
 import { parseCli, firstUrl } from './cli-args.js';
 import { TIMING_ENABLED, getSamples, getClaudeSamples, timed } from './debug/instrument.js';
@@ -42,7 +43,8 @@ async function main(): Promise<void> {
 
   const db = openDb(dbPath);
   console.log(`DB: ${dbPath}`);
-  console.log(`model=${process.env.GRAPH_EXTRACT_MODEL ?? 'opus'} effort=${process.env.GRAPH_EXTRACT_EFFORT ?? '(default)'} concurrency=${opts.concurrency ?? DEFAULT_CONCURRENCY}`);
+  const cfg = resolveModelConfig();
+  console.log(`model=${cfg.model} effort=${cfg.effort} concurrency=${opts.concurrency ?? DEFAULT_CONCURRENCY}`);
   if (useFixture) console.warn('⚠  FIXTURE extraction — synthetic, NOT real Claude output.');
 
   const wallStart = performance.now();
