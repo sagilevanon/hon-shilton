@@ -5,14 +5,17 @@
 // Returns the envelope's `structured_output`; the caller narrows it to its schema.
 
 import { spawn } from 'node:child_process';
+import { recordClaude, TIMING_ENABLED } from './debug/instrument.js';
 
 const MODEL = process.env.GRAPH_EXTRACT_MODEL ?? 'opus';
+const EFFORT = process.env.GRAPH_EXTRACT_EFFORT;
 const TIMEOUT_MS = Number(process.env.GRAPH_EXTRACT_TIMEOUT_MS ?? 360_000);
 
 export interface ClaudeCall {
   prompt: string;
   schema: object;
   systemPrompt: string;
+  label?: string;
 }
 
 export function runClaude(call: ClaudeCall): Promise<unknown> {
@@ -27,9 +30,11 @@ export function runClaude(call: ClaudeCall): Promise<unknown> {
     call.systemPrompt,
     '--model',
     MODEL,
+    ...(EFFORT ? ['--effort', EFFORT] : []),
   ];
 
   return new Promise((resolve, reject) => {
+    const wallStart = performance.now();
     const proc = spawn('claude', args, { stdio: ['ignore', 'pipe', 'pipe'], env: process.env });
     let out = '';
     let err = '';
@@ -53,6 +58,7 @@ export function runClaude(call: ClaudeCall): Promise<unknown> {
       } catch (e) {
         return reject(new Error(`could not parse claude JSON output: ${(e as Error).message}`));
       }
+      if (TIMING_ENABLED) recordClaudeEnvelope(call.label ?? 'claude', performance.now() - wallStart, envelope);
       if (envelope.structured_output === undefined) {
         return reject(new Error('claude returned no structured_output matching the schema'));
       }
@@ -60,3 +66,23 @@ export function runClaude(call: ClaudeCall): Promise<unknown> {
     });
   });
 }
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function recordClaudeEnvelope(label: string, wallMs: number, envelope: any): void {
+  const u = envelope?.usage ?? {};
+  recordClaude({
+    label,
+    wallMs,
+    durationMs: envelope?.duration_ms,
+    durationApiMs: envelope?.duration_api_ms,
+    ttftMs: envelope?.ttft_ms,
+    timeToRequestMs: envelope?.time_to_request_ms,
+    numTurns: envelope?.num_turns,
+    inputTokens: u.input_tokens,
+    outputTokens: u.output_tokens,
+    cacheCreationTokens: u.cache_creation_input_tokens,
+    cacheReadTokens: u.cache_read_input_tokens,
+    costUsd: envelope?.total_cost_usd,
+  });
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */

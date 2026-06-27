@@ -3,6 +3,7 @@ import { cacheArticle, isArticleCached, upsertEntity, findOrCreateEdge, addSourc
 import { fetchArticle, type FetchResult } from './ynet.js';
 import { extractWithClaude, extractFixture } from './extract.js';
 import { categoryOf, SYMMETRIC_RELATIONS } from './taxonomy.js';
+import { timed } from './debug/instrument.js';
 import type { ArticleInput, ExtractionResult } from './types.js';
 
 export enum IngestOutcome {
@@ -60,13 +61,13 @@ export async function ingestOne(db: DB, ref: FeedRef, opts: IngestOptions, deps:
   }
 
   const article = fetched.article;
-  cacheArticle(db, article, ArticleStatus.Ok);
+  await timed('db_cache', () => cacheArticle(db, article, ArticleStatus.Ok));
   if (opts.scrapeOnly) {
     return { ...empty, outcome: IngestOutcome.ScrapeOnly, title: article.title };
   }
 
-  const result = await deps.extract(article);
-  const relations = storeExtraction(db, article, result);
+  const result = await timed('extract', () => deps.extract(article));
+  const relations = await timed('db_store', () => storeExtraction(db, article, result));
   return {
     url: ref.url,
     outcome: IngestOutcome.Ingested,

@@ -64,7 +64,7 @@ function userPrompt(c: VerifyClaim): string {
 }
 
 export async function verifyClaim(claim: VerifyClaim): Promise<Verdict> {
-  const so = (await runClaude({ prompt: userPrompt(claim), schema: SCHEMA, systemPrompt: SYSTEM_PROMPT })) as Verdict;
+  const so = (await runClaude({ prompt: userPrompt(claim), schema: SCHEMA, systemPrompt: SYSTEM_PROMPT, label: 'verify' })) as Verdict;
   if (!so || typeof so.supported !== 'boolean') {
     throw new Error('claude returned no verdict matching the schema');
   }

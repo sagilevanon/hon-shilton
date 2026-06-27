@@ -10,6 +10,8 @@
   "scripts": {
     "ingest": "NODE_NO_WARNINGS=1 tsx src/ingest.ts",
     "ingest-feed": "NODE_NO_WARNINGS=1 tsx src/ingest-feed.ts",
+    "debug-ingest": "NODE_NO_WARNINGS=1 GRAPH_DEBUG_TIMING=1 tsx src/debug-ingest.ts",
+    "debug-verify": "NODE_NO_WARNINGS=1 GRAPH_DEBUG_TIMING=1 tsx src/debug-verify.ts",
     "verify": "NODE_NO_WARNINGS=1 tsx src/verify-edges.ts",
     "dump": "NODE_NO_WARNINGS=1 tsx src/dump.ts",
     "build": "tsc",

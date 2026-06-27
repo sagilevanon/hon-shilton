@@ -92,6 +92,7 @@ export async function extractWithClaude(article: ArticleInput): Promise<Extracti
     prompt: userPrompt(article),
     schema: SCHEMA,
     systemPrompt: systemPrompt(),
+    label: 'extract',
   })) as ExtractionResult;
   if (!so || !Array.isArray(so.entities) || !Array.isArray(so.relations)) {
     throw new Error('claude returned no structured_output matching the schema');

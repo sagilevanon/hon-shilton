@@ -1,5 +1,6 @@
 import { ingestOne, IngestOutcome, type IngestDeps, type IngestOptions, type IngestReport, type FeedRef } from './pipeline.js';
 import { sleep } from './sleep.js';
+import { timed } from './debug/instrument.js';
 import type { DB } from './db.js';
 
 export interface FeedOptions extends IngestOptions {
@@ -23,7 +24,7 @@ export async function runFeed(
     const report = await ingestSafely(db, selected[i], opts, deps);
     reports.push(report);
     onReport?.(report, i, selected.length);
-    if (hitNetwork(report) && i < selected.length - 1) await sleep(opts.delayMs);
+    if (hitNetwork(report) && i < selected.length - 1) await timed('sleep', () => sleep(opts.delayMs));
   }
   return reports;
 }
