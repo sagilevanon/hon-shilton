@@ -32,6 +32,21 @@ export interface NeighborGraph {
   total: number;
 }
 
+export interface PathRoute {
+  nodes: number[];
+  edges: number[];
+  hops: number;
+}
+
+export interface Subgraph {
+  from: number;
+  to: number;
+  paths: PathRoute[];
+  nodes: Node[];
+  edges: Edge[];
+  suppressedHubs: Node[];
+}
+
 export interface GraphStats {
   persons: number;
   linkingEntitys: number;

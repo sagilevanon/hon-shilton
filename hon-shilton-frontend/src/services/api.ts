@@ -1,4 +1,4 @@
-import { Node, Edge, ReviewItem, ReviewAction, SearchResult, NeighborGraph } from '@/types';
+import { Node, Edge, ReviewItem, ReviewAction, SearchResult, NeighborGraph, Subgraph } from '@/types';
 
 // Using relative path to leverage Vite's proxy
 const API_BASE = '/api';
@@ -48,6 +48,22 @@ export const SearchAPI = {
 export const NeighborAPI = {
   get: (id: number, limit?: number): Promise<NeighborGraph> =>
     getJson(`/neighbors/${id}${limit ? `?limit=${limit}` : ''}`, 'neighbors'),
+};
+
+export interface SubgraphParams {
+  maxHops?: number;
+  exclude?: number[];
+  includeHubs?: boolean;
+}
+
+export const SubgraphAPI = {
+  get: (from: number, to: number, params: SubgraphParams = {}): Promise<Subgraph> => {
+    const q = new URLSearchParams({ from: String(from), to: String(to) });
+    if (params.maxHops) q.set('maxHops', String(params.maxHops));
+    if (params.exclude?.length) q.set('exclude', params.exclude.join(','));
+    if (params.includeHubs) q.set('includeHubs', '1');
+    return getJson(`/subgraph?${q.toString()}`, 'connection');
+  },
 };
 
 export const GraphAPI = {

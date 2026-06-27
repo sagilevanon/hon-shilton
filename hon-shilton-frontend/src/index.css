@@ -201,6 +201,31 @@ body {
   background-clip: padding-box;
 }
 
+.hs-range {
+  appearance: none;
+  -webkit-appearance: none;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--brass-line);
+  cursor: pointer;
+}
+.hs-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--brass);
+  border: 2px solid var(--ink-strong, #0c0c0c);
+}
+.hs-range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: none;
+  border-radius: 50%;
+  background: var(--brass);
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     animation-duration: 0.01ms !important;
