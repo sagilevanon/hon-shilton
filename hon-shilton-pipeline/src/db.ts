@@ -185,11 +185,14 @@ export interface VerificationRow {
   relation: string;
   directed: number;
   quote: string | null;
+  url: string | null;
 }
 
 // Edges awaiting a verification verdict, with their entity names and one
-// representative supporting quote. By default only 'unchecked' edges (so the
-// stage is idempotent / resumable); `force` re-checks every edge.
+// representative supporting quote + the article it came from (so the verify
+// stage can batch all of one article's edges into a single call). By default
+// only 'unchecked' edges (so the stage is idempotent / resumable); `force`
+// re-checks every edge.
 export function getEdgesToVerify(db: DB, force: boolean, limit?: number): VerificationRow[] {
   const params: (string | number)[] = [];
   let where = '';
@@ -206,11 +209,15 @@ export function getEdgesToVerify(db: DB, force: boolean, limit?: number): Verifi
     .prepare(
       `SELECT e.id, e.relation, e.directed,
               src.canonical_name AS source, tgt.canonical_name AS target,
-              (SELECT s.quote FROM edge_sources s
-                 WHERE s.edge_id = e.id AND s.quote IS NOT NULL AND s.quote != '' LIMIT 1) AS quote
+              rep.quote AS quote, rep.url AS url
        FROM edges e
        JOIN entities src ON src.id = e.src_entity_id
        JOIN entities tgt ON tgt.id = e.tgt_entity_id
+       LEFT JOIN edge_sources rep ON rep.id = (
+         SELECT s.id FROM edge_sources s
+         WHERE s.edge_id = e.id AND s.quote IS NOT NULL AND s.quote != ''
+         ORDER BY s.id LIMIT 1
+       )
        ${where}
        ORDER BY e.id${lim}`,
     )

@@ -1,7 +1,8 @@
-// Verification: a second Claude Code call that fact-checks one extracted
-// relation against the exact quote it was based on. Catches misreads the
-// extractor can make — denials ("denied funding"), wrong direction, or a quote
-// that is about a different pair entirely. Returns supported true/false.
+// Verification: a second Claude Code call that fact-checks extracted relations
+// against the exact quotes they were based on. Catches misreads the extractor
+// can make — denials ("denied funding"), wrong direction, or a quote that is
+// about a different pair entirely. One call checks a whole batch of claims and
+// returns one verdict per claim, in order.
 
 import { runClaude } from './claude.js';
 
@@ -18,7 +19,7 @@ export interface Verdict {
   reason?: string;
 }
 
-export type Verifier = (claim: VerifyClaim) => Promise<Verdict>;
+export type BatchVerifier = (claims: VerifyClaim[]) => Promise<Verdict[]>;
 
 export function arrow(directed: boolean): string {
   return directed ? '→' : '↔';
@@ -28,16 +29,26 @@ const SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    supported: { type: 'boolean' },
-    reason: { type: 'string' },
+    verdicts: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          supported: { type: 'boolean' },
+          reason: { type: 'string' },
+        },
+        required: ['supported'],
+      },
+    },
   },
-  required: ['supported'],
+  required: ['verdicts'],
 } as const;
 
 const SYSTEM_PROMPT = [
   'You are a fact-checker for a public-transparency knowledge graph built from Israeli news.',
-  'You are given ONE extracted relationship and the exact quote it was drawn from.',
-  'Decide whether the quote really supports that relationship.',
+  'You are given a NUMBERED list of extracted relationships, each with the exact quote it was drawn from.',
+  'For EACH item, decide whether the quote really supports that relationship.',
   '',
   'Set supported=false when:',
   '- the quote denies or negates the relation (e.g. "הכחיש", "לא תרם", "denied funding"),',
@@ -47,30 +58,41 @@ const SYSTEM_PROMPT = [
   'Set supported=true only when the quote clearly states or implies this exact relation',
   'between these two entities. An openly alleged relation ("לכאורה") still counts as',
   'supported — it is something the article reports.',
-  'Give a one-line reason.',
+  'Return a "verdicts" array with EXACTLY one entry per input item, in the SAME ORDER.',
+  'Give a one-line reason for each.',
 ].join('\n');
 
-function userPrompt(c: VerifyClaim): string {
+function claimBlock(c: VerifyClaim, i: number): string {
   return [
-    'יחס שחולץ:',
+    `#${i + 1}`,
     `${c.source} ${arrow(c.directed)} ${c.target}`,
     `סוג הקשר: ${c.relation} (${c.directed ? 'מכוון' : 'הדדי'})`,
-    '',
-    'הציטוט התומך מהכתבה:',
-    `"${c.quote}"`,
-    '',
-    'האם הציטוט באמת תומך בקשר הזה?',
+    `הציטוט התומך: "${c.quote}"`,
   ].join('\n');
 }
 
-export async function verifyClaim(claim: VerifyClaim): Promise<Verdict> {
-  const so = (await runClaude({ prompt: userPrompt(claim), schema: SCHEMA, systemPrompt: SYSTEM_PROMPT, label: 'verify' })) as Verdict;
-  if (!so || typeof so.supported !== 'boolean') {
-    throw new Error('claude returned no verdict matching the schema');
-  }
-  return so;
+function userPrompt(claims: VerifyClaim[]): string {
+  return [
+    `להלן ${claims.length} יחסים שחולצו. עבור כל אחד, האם הציטוט באמת תומך בקשר?`,
+    '',
+    claims.map(claimBlock).join('\n\n'),
+  ].join('\n');
 }
 
-export function verifyFixture(_claim: VerifyClaim): Verdict {
-  return { supported: true, reason: 'fixture — plumbing only, not a real verdict' };
+export async function verifyClaims(claims: VerifyClaim[]): Promise<Verdict[]> {
+  if (claims.length === 0) return [];
+  const so = (await runClaude({
+    prompt: userPrompt(claims),
+    schema: SCHEMA,
+    systemPrompt: SYSTEM_PROMPT,
+    label: 'verify',
+  })) as { verdicts?: Verdict[] };
+  if (!so || !Array.isArray(so.verdicts)) {
+    throw new Error('claude returned no verdicts matching the schema');
+  }
+  return so.verdicts;
+}
+
+export function verifyClaimsFixture(claims: VerifyClaim[]): Verdict[] {
+  return claims.map(() => ({ supported: true, reason: 'fixture — plumbing only, not a real verdict' }));
 }

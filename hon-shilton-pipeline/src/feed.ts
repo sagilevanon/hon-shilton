@@ -9,13 +9,13 @@ import {
   type Fetcher,
   type FeedRef,
 } from './pipeline.js';
-import { mapPool, Semaphore } from './pool.js';
+import { mapPool, Semaphore, DEFAULT_CONCURRENCY } from './pool.js';
 import { sleep } from './sleep.js';
 import { timed } from './debug/instrument.js';
 import type { ArticleInput, ExtractionResult } from './types.js';
 import type { DB } from './db.js';
 
-export const DEFAULT_CONCURRENCY = 5;
+export { DEFAULT_CONCURRENCY };
 export const DEFAULT_FETCH_CONCURRENCY = 2;
 
 export interface FeedOptions extends IngestOptions {

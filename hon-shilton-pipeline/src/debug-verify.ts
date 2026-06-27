@@ -26,6 +26,7 @@ async function main(): Promise<void> {
   const opts: VerifyOptions = {
     force: values.force ?? false,
     limit: values.limit != null ? Number(values.limit) : undefined,
+    concurrency: values.concurrency != null ? Number(values.concurrency) : undefined,
   };
 
   const db = openDb(dbPath);
@@ -36,7 +37,7 @@ async function main(): Promise<void> {
   const wallStart = performance.now();
   const report = await runVerification(db, opts, buildVerifyDeps(useFixture));
   const wallTotal = performance.now() - wallStart;
-  console.log(`verified ${report.total} edges — supported: ${report.supported}, unsupported: ${report.unsupported}, errors: ${report.errors}`);
+  console.log(`verified ${report.total} edges in ${report.calls} call(s) — supported: ${report.supported}, unsupported: ${report.unsupported}, errors: ${report.errors}`);
 
   printStepTable(getSamples(), [], wallTotal);
   printClaudeBreakdown(getClaudeSamples());

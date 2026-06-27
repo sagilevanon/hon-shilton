@@ -1,3 +1,5 @@
+export const DEFAULT_CONCURRENCY = 5;
+
 export async function mapPool<T, R>(
   items: readonly T[],
   concurrency: number,
