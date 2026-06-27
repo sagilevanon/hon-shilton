@@ -321,8 +321,50 @@ viable candidate — small, identifiable quality cost — and should be paired w
 name/relation-label **normalization step** (it would also dissolve most of the churn
 above, which is naming, not semantics). **opus-4.7/medium: not recommended.**
 
-**Phase C** is tooling-complete (`re-extract` + `debug-diff`) and now exercised live.
-Default stays opus/high (`GRAPH_EXTRACT_MODEL`/`GRAPH_EXTRACT_EFFORT`).
+### Phase C — round 3: opus-4.7 effort sweep (the speed lever)
+
+Effort barely moved wall-clock on 4.8 (the ~20k-token per-call harness cache + CLI
+startup dominate, not reasoning) — so the real speed lever turned out to be the
+**model**. opus-4.7 is markedly faster than 4.8. Full sweep, all 18 bodies, diffed
+vs the clean opus-4.8/high reference (wall from epoch markers, conc-3):
+
+| config | edges (yield vs high) | ownership/funding `[בעלים של]`/`[מימן את]` | wall (18 art) | speed |
+|---|--:|---|--:|--:|
+| **opus-4.8 / high** (reference) | 117 (—) | full | 10.6 min | 1.0× |
+| opus-4.8 / medium | 108 (−8%) | 3 dropped/flattened | 8.8 min | 1.19× |
+| opus-4.7 / medium | 97 (−17%) | mixed | 3.2 min | 3.3× |
+| **opus-4.7 / high** ⭐ | 107 (−8.5%) | **all kept, med→high** | 4.1 min | **2.57×** |
+| opus-4.7 / xhigh | 99 (−15%) | 3 dropped | 8.0 min | 1.32× |
+
+- **opus-4.7/high is the recommended speed config.** 2.57× faster than 4.8/high for
+  the same −8.5% edge yield as 4.8/medium — but unlike medium it **preserves every
+  high-value relation** (the media-ownership trio אגודת ישראל→המודיע, דגל התורה→
+  יתד נאמן, ש"ס→הדרך and the funding edge איראן→חיזבאללה→`[מימן את]` are all common
+  and upgraded med→high), plus category fixes (`אחר`→`פוליטי`/`משפטי`). Entity
+  recognition equal-or-better (161 vs 155).
+- **More effort backfired:** 4.7/xhigh took ~2× as long as 4.7/high yet extracted
+  *fewer* edges (99) and dropped the ownership trio — over-reasoning pruned good
+  relations. The 4.7 effort curve peaks at **high**.
+- **Caveat (same as before):** 4.7 canonicalizes some names differently from 4.8
+  (כנסת/הכנסת, הצבא הלבנוני/צבא לבנון, סנטקום/פיקוד המרכז) — surface noise, not
+  recognition loss; the name/relation-label **normalization step** dissolves it and
+  is the prerequisite to adopting any non-4.8/high config cleanly.
+- **Reliability note:** the first xhigh run hit the Claude Code **session/usage
+  limit** mid-batch (10/18 errored, "resets 4:30pm"); Phase D classified it
+  retryable but the retry hit the same cap. Re-run after reset was clean. Takeaway:
+  a sustained limit is *not* meaningfully retryable — a future enhancement is to
+  detect the session-limit envelope and **abort fast** rather than burn the retry.
+
+**Recommendation (final):** keep **opus-4.8/high** as the default for maximum
+fidelity; adopt **opus-4.7/high** when the ~2.5× speedup is worth a bounded −8.5%
+yield (it protects the ownership/funding ties that matter most), and only after
+adding the **name/relation-label normalization** step. Avoid 4.8/medium (low speed
+gain, drops ownership), 4.7/medium (−17%), and 4.7/xhigh (slow, drops ownership).
+
+**Phase C** is tooling-complete (`re-extract` + `debug-diff`) and now exercised live
+across five model/effort configs. Default stays opus-4.8/high; opus-4.7/high is the
+documented speed alternative (`GRAPH_EXTRACT_MODEL=claude-opus-4-7
+GRAPH_EXTRACT_EFFORT=high`).
 
 ## Out of scope (revisit only if A–D fall short)
 - Direct Anthropic API / Batch API (would reverse D1 — the no-API-key principle).
