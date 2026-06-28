@@ -33,6 +33,7 @@ export default function NetworkGraphPage() {
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<Edge | null>(null);
   const [active, setActive] = useState<Set<string>>(ALL_CATEGORIES);
+  const [showStates, setShowStates] = useState(true);
   const [loading, setLoading] = useState(false);
   const [reviewGate, setReviewGate] = useState(false);
   const [session, setSession] = useState(0);
@@ -82,6 +83,7 @@ export default function NetworkGraphPage() {
         setSelectedNode(null);
         setSelectedEdge(null);
         setActive(ALL_CATEGORIES);
+        setShowStates(true);
         clearConnection();
         setSession((s) => s + 1);
       } finally {
@@ -136,6 +138,7 @@ export default function NetworkGraphPage() {
       }),
     [],
   );
+  const toggleStates = useCallback(() => setShowStates((s) => !s), []);
 
   const counts = useMemo(() => {
     const c: Record<string, number> = {};
@@ -143,15 +146,23 @@ export default function NetworkGraphPage() {
     return c;
   }, [graph.edges]);
 
-  // Category filter: drop hidden-category edges, then any node left unconnected
-  // (the focal node always stays so the view never empties out under it).
+  const stateCount = useMemo(() => graph.nodes.filter((n) => n.isState).length, [graph.nodes]);
+
+  // Visibility filter: drop hidden-category edges and (when states are toggled
+  // off) every edge touching a state node — states are super-hubs that bury the
+  // rest of the graph. Then drop any node left unconnected. The focal node always
+  // stays (you searched for it), even if it is itself a state.
   const view = useMemo(() => {
-    if (active.size === CATEGORIES.length) return graph;
-    const edges = graph.edges.filter((e) => active.has(e.category ?? 'אחר'));
+    const allCategories = active.size === CATEGORIES.length;
+    if (allCategories && showStates) return graph;
+    const hidden = new Set(graph.nodes.filter((n) => !showStates && n.isState && n.id !== focalId).map((n) => n.id));
+    const edges = graph.edges.filter(
+      (e) => (allCategories || active.has(e.category ?? 'אחר')) && !hidden.has(e.source) && !hidden.has(e.target),
+    );
     const keep = new Set<number>(focalId === null ? [] : [focalId]);
     for (const e of edges) (keep.add(e.source), keep.add(e.target));
-    return { edges, nodes: graph.nodes.filter((n) => keep.has(n.id)) };
-  }, [graph, active, focalId]);
+    return { edges, nodes: graph.nodes.filter((n) => keep.has(n.id) && !hidden.has(n.id)) };
+  }, [graph, active, focalId, showStates]);
 
   const nodeById = useMemo(() => new Map(graph.nodes.map((n) => [n.id, n])), [graph.nodes]);
 
@@ -291,7 +302,14 @@ export default function NetworkGraphPage() {
         </div>
       )}
 
-      <CategoryFilter active={active} counts={counts} onToggle={toggleCategory} />
+      <CategoryFilter
+        active={active}
+        counts={counts}
+        onToggle={toggleCategory}
+        showStates={showStates}
+        stateCount={stateCount}
+        onToggleStates={toggleStates}
+      />
 
       {connection.active && (
         <ConnectionControls

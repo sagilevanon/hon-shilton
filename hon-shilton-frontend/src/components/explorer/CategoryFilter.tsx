@@ -1,12 +1,23 @@
+import { Landmark } from 'lucide-react';
 import { CATEGORIES } from '@/lib/graph';
 
 interface CategoryFilterProps {
   active: Set<string>;
   counts: Record<string, number>;
   onToggle: (key: string) => void;
+  showStates: boolean;
+  stateCount: number;
+  onToggleStates: () => void;
 }
 
-export default function CategoryFilter({ active, counts, onToggle }: CategoryFilterProps) {
+export default function CategoryFilter({
+  active,
+  counts,
+  onToggle,
+  showStates,
+  stateCount,
+  onToggleStates,
+}: CategoryFilterProps) {
   return (
     <div
       className="hs-chrome hs-rtl absolute bottom-6 left-6 z-20 w-60 rounded-xl px-4 py-3 text-xs"
@@ -38,6 +49,22 @@ export default function CategoryFilter({ active, counts, onToggle }: CategoryFil
           );
         })}
       </div>
+
+      <div className="my-2.5 h-px w-full" style={{ background: 'var(--brass-line)' }} />
+
+      <button
+        onClick={onToggleStates}
+        disabled={stateCount === 0}
+        title="מדינות מתפקדות כצמתים מרכזיים ומוסיפות רעש — אפשר להסתיר אותן"
+        className="flex w-full items-center gap-2 rounded-md px-1.5 py-1 transition-colors hover:bg-white/5 disabled:cursor-default disabled:hover:bg-transparent"
+        style={{ opacity: stateCount === 0 ? 0.35 : showStates ? 1 : 0.4 }}
+      >
+        <Landmark className="h-3.5 w-4" style={{ color: 'var(--org)' }} />
+        <span style={{ color: 'var(--bone)' }}>מדינות</span>
+        <span className="hs-mono mr-auto text-[11px]" style={{ color: 'var(--bone-soft)' }}>
+          {stateCount}
+        </span>
+      </button>
 
       <div className="my-2.5 h-px w-full" style={{ background: 'var(--brass-line)' }} />
 
