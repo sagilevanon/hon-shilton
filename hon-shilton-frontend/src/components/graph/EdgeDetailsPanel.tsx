@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import { Edge } from '@/types';
-import { categoryMeta } from '@/lib/graph';
+import { categoryMeta, edgeLabel } from '@/lib/graph';
 import { X, ExternalLink, Quote, Layers } from 'lucide-react';
 
 interface EdgeDetailsPanelProps {
@@ -57,7 +57,7 @@ export default function EdgeDetailsPanel({ edge, sourceName, targetName, onClose
         <div className="mt-4 leading-relaxed" style={{ color: 'var(--ink)' }}>
           <span className="hs-display text-xl font-bold">{sourceName}</span>
           <span className="mx-1.5 text-sm font-semibold" style={{ color: cat.color }}>
-            {edge.relation}
+            {edgeLabel(edge)}
           </span>
           <span className="hs-display text-xl font-bold">{targetName}</span>
         </div>

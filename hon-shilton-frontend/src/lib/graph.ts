@@ -25,3 +25,8 @@ export const categoryMeta = (key?: string): CategoryMeta => (key ? BY_KEY.get(ke
 export const categoryColor = (key?: string): string => categoryMeta(key).color;
 
 export const edgeKey = (e: Edge): string => String(e.id ?? `${e.source}-${e.target}-${e.relation}`);
+
+// The text shown on/for an edge. "אחר" edges carry no useful relation term, so
+// they fall back to the free-text subcategory label the extractor attached.
+export const edgeLabel = (e: { relation: string; subcategory?: string | null }): string =>
+  e.subcategory?.trim() || e.relation;

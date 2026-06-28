@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS edges (
   tgt_entity_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
   relation      TEXT NOT NULL,
   category      TEXT NOT NULL CHECK (category IN ('משפחה','כספים','מקצועי','פוליטי','משפטי','אחר')),
+  subcategory   TEXT,
   raw_phrase    TEXT,
   directed      INTEGER NOT NULL DEFAULT 1,
   confidence    TEXT NOT NULL CHECK (confidence IN ('low','med','high')),
@@ -165,6 +166,7 @@ export interface EdgeInput {
   tgt: number;
   relation: string;
   category: string;
+  subcategory?: string | null;
   raw_phrase?: string | null;
   directed: boolean;
   confidence: string;
@@ -184,10 +186,10 @@ export function findOrCreateEdge(db: DB, p: EdgeInput): number {
 
   const res = db
     .prepare(
-      `INSERT INTO edges (src_entity_id, tgt_entity_id, relation, category, raw_phrase, directed, confidence)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO edges (src_entity_id, tgt_entity_id, relation, category, subcategory, raw_phrase, directed, confidence)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(src, tgt, p.relation, p.category, p.raw_phrase ?? null, p.directed ? 1 : 0, p.confidence);
+    .run(src, tgt, p.relation, p.category, p.subcategory ?? null, p.raw_phrase ?? null, p.directed ? 1 : 0, p.confidence);
   return Number(res.lastInsertRowid);
 }
 
@@ -271,6 +273,7 @@ export interface GraphEdge {
   target: number;
   relation: string;
   category: string;
+  subcategory: string | null;
   confidence: string;
   status: string;
   verification: string;
@@ -287,7 +290,7 @@ export function getGraph(db: DB): {nodes: GraphNode[]; edges: GraphEdge[]} {
 
   const edgeRows = db
     .prepare(
-      `SELECT e.id, e.src_entity_id AS source, e.tgt_entity_id AS target, e.relation, e.category,
+      `SELECT e.id, e.src_entity_id AS source, e.tgt_entity_id AS target, e.relation, e.category, e.subcategory,
               e.confidence, e.status, e.verification, e.directed, COUNT(s.id) AS value
        FROM edges e LEFT JOIN edge_sources s ON s.edge_id = e.id
        GROUP BY e.id`,

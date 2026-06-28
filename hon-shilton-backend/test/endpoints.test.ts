@@ -18,7 +18,7 @@ function buildPopulatedDb(file: string): void {
       type TEXT NOT NULL, subtype TEXT, description TEXT, image TEXT) STRICT;
     CREATE TABLE aliases (id INTEGER PRIMARY KEY AUTOINCREMENT, entity_id INTEGER, alias TEXT) STRICT;
     CREATE TABLE edges (id INTEGER PRIMARY KEY AUTOINCREMENT, src_entity_id INTEGER, tgt_entity_id INTEGER,
-      relation TEXT, category TEXT, confidence TEXT, status TEXT DEFAULT 'proposed',
+      relation TEXT, category TEXT, subcategory TEXT, confidence TEXT, status TEXT DEFAULT 'proposed',
       verification TEXT DEFAULT 'unchecked', directed INTEGER DEFAULT 1) STRICT;
     CREATE TABLE edge_sources (id INTEGER PRIMARY KEY AUTOINCREMENT, edge_id INTEGER, url TEXT, outlet TEXT,
       published_date TEXT, quote TEXT) STRICT;
@@ -46,7 +46,7 @@ function buildEgoDb(file: string): void {
       type TEXT NOT NULL, subtype TEXT, description TEXT, image TEXT) STRICT;
     CREATE TABLE aliases (id INTEGER PRIMARY KEY AUTOINCREMENT, entity_id INTEGER, alias TEXT) STRICT;
     CREATE TABLE edges (id INTEGER PRIMARY KEY AUTOINCREMENT, src_entity_id INTEGER, tgt_entity_id INTEGER,
-      relation TEXT, category TEXT, confidence TEXT, status TEXT DEFAULT 'approved',
+      relation TEXT, category TEXT, subcategory TEXT, confidence TEXT, status TEXT DEFAULT 'approved',
       verification TEXT DEFAULT 'supported', directed INTEGER DEFAULT 1, created_at TEXT) STRICT;
     CREATE TABLE edge_sources (id INTEGER PRIMARY KEY AUTOINCREMENT, edge_id INTEGER, url TEXT, outlet TEXT,
       published_date TEXT, quote TEXT) STRICT;
@@ -87,7 +87,7 @@ function buildPathDb(file: string): void {
       type TEXT NOT NULL, subtype TEXT, description TEXT, image TEXT) STRICT;
     CREATE TABLE aliases (id INTEGER PRIMARY KEY AUTOINCREMENT, entity_id INTEGER, alias TEXT) STRICT;
     CREATE TABLE edges (id INTEGER PRIMARY KEY AUTOINCREMENT, src_entity_id INTEGER, tgt_entity_id INTEGER,
-      relation TEXT, category TEXT, confidence TEXT, status TEXT DEFAULT 'approved',
+      relation TEXT, category TEXT, subcategory TEXT, confidence TEXT, status TEXT DEFAULT 'approved',
       verification TEXT DEFAULT 'supported', directed INTEGER DEFAULT 1, created_at TEXT) STRICT;
     CREATE TABLE edge_sources (id INTEGER PRIMARY KEY AUTOINCREMENT, edge_id INTEGER, url TEXT, outlet TEXT,
       published_date TEXT, quote TEXT) STRICT;
@@ -95,7 +95,7 @@ function buildPathDb(file: string): void {
   const ent = db.prepare('INSERT INTO entities (canonical_name, type) VALUES (?, ?)');
   ['A', 'B', 'C', 'D', 'E', 'F', 'HUB'].forEach((n) => ent.run(n, 'organization'));
   const edge = db.prepare(
-    "INSERT INTO edges (src_entity_id, tgt_entity_id, relation, category, confidence) VALUES (?, ?, 'קשור', 'אחר', 'med')",
+    "INSERT INTO edges (src_entity_id, tgt_entity_id, relation, category, subcategory, confidence) VALUES (?, ?, 'קשור', 'אחר', 'יחסים דיפלומטיים', 'med')",
   );
   const pairs: Array<[number, number]> = [
     [1, 2], [2, 3], [3, 4], [1, 5], [5, 4], [1, 7], [7, 4], [7, 2], [7, 3], [7, 5], [7, 6],
@@ -335,6 +335,10 @@ describe('graph + review API (SQLite-backed)', () => {
       // The flat union hydrates display nodes + edges (with sources) for the routes.
       assert.deepEqual(r.body.nodes.map((n: { id: number }) => n.id).sort((a: number, b: number) => a - b), [1, 2, 3, 4, 5]);
       assert.ok(r.body.edges.every((e: { sources: unknown[] }) => Array.isArray(e.sources)));
+      assert.ok(
+        r.body.edges.every((e: { subcategory: string }) => e.subcategory === 'יחסים דיפלומטיים'),
+        'the free-text subcategory label rides along on every "other" edge',
+      );
       assert.ok(!r.body.nodes.some((n: { id: number }) => n.id === 7), 'the hub is excluded by default');
     });
 

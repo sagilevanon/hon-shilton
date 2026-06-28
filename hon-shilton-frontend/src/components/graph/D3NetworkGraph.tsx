@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import * as d3 from 'd3';
 import { Node, Edge } from '@/types';
-import { CATEGORIES, categoryMeta, edgeKey } from '@/lib/graph';
+import { CATEGORIES, categoryMeta, edgeKey, edgeLabel } from '@/lib/graph';
 
 export interface RouteOverlay {
   nodeIds: Set<number>;
@@ -176,7 +176,7 @@ export default function D3NetworkGraph({
       .attr('text-anchor', 'middle')
       .style('pointer-events', 'none')
       .style('opacity', labelOpacity)
-      .text((d) => d.relation);
+      .text((d) => edgeLabel(d));
 
     const nodeSel = root
       .append('g')
