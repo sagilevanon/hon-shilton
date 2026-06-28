@@ -75,14 +75,28 @@ async function verifyGroup(group: VerificationRow[], deps: VerifyDeps, counter: 
   const claims = group.map(toClaim);
   try {
     counter.calls++;
-    const verdicts = await deps.verify(claims);
-    if (verdicts.length === group.length) {
-      return group.map((row, i) => ({ row, verdict: verdicts[i] }));
-    }
+    const aligned = alignVerdicts(await deps.verify(claims), group.length);
+    if (aligned) return group.map((row, i) => ({ row, verdict: aligned[i] }));
   } catch {
     // fall through to the per-edge retry below
   }
   return perEdge(group, deps, counter);
+}
+
+// Bind one verdict to each claim. A length mismatch is unrecoverable (→ per-edge).
+// Otherwise, if the model echoed an "index" (#N) for every claim, trust those to
+// reorder — a same-length but shuffled array would bind verdicts to the wrong
+// edges and silently mis-reject them. With no/partial indices, fall back to the
+// positional order the prompt asked for.
+function alignVerdicts(verdicts: Verdict[], n: number): Verdict[] | null {
+  if (verdicts.length !== n) return null;
+  const byIndex = new Array<Verdict>(n);
+  for (const v of verdicts) {
+    const i = (v.index ?? 0) - 1;
+    if (!Number.isInteger(i) || i < 0 || i >= n || byIndex[i] !== undefined) return verdicts;
+    byIndex[i] = v;
+  }
+  return byIndex;
 }
 
 async function perEdge(group: VerificationRow[], deps: VerifyDeps, counter: { calls: number }): Promise<RowOutcome[]> {

@@ -26,6 +26,8 @@ describe('re-extract from cached bodies', () => {
 
     assert.equal(report.articles, 2);
     assert.equal(report.errors, 0);
+    assert.equal(report.entities, 2, 'report counts the deduped graph (2 nodes), not 4 per-article entities');
+    assert.equal(report.relations, 1, 'and the one corroborated edge, not 2 per-article relations');
 
     const graph = getGraph(dst);
     // The fixture yields the same 2 entities + 1 edge for every article, so

@@ -4,7 +4,8 @@
 // model held constant. Then projects to real-world wall-clock using the measured
 // per-call means from plans/ingestion-perf.md. No Claude calls, no network.
 //
-//   npm run bench -- [--limit ARTICLES] [--edges-per N] [--extract-ms N] [--verify-ms N]
+//   npm run bench -- [--limit ARTICLES]
+//   tune the model held constant via env: BENCH_EDGES_PER, BENCH_EXTRACT_MS, BENCH_VERIFY_MS
 
 import { openDb, upsertEntity, findOrCreateEdge, addSource, type DB } from './db.js';
 import { runFeed } from './feed.js';

@@ -35,20 +35,39 @@ export async function runFeed(
   deps: IngestDeps,
   onReport?: ReportListener,
 ): Promise<IngestReport[]> {
-  const selected = opts.limit != null ? items.slice(0, opts.limit) : items;
+  const distinct = dedupeByUrl(items);
+  const selected = opts.limit != null ? distinct.slice(0, opts.limit) : distinct;
   const concurrency = opts.concurrency ?? DEFAULT_CONCURRENCY;
   const fetchSem = new Semaphore(Math.min(DEFAULT_FETCH_CONCURRENCY, concurrency));
   const politeDeps: IngestDeps = { ...deps, fetch: politeFetch(deps.fetch, fetchSem, opts.delayMs) };
 
-  const prepared = await mapPool(selected, concurrency, (ref) => processItem(db, ref, opts, politeDeps));
+  // prepare+extract fan out across the pool (any order); a single serial consumer
+  // drains them in feed order — keeping cross-article entity resolution race-free
+  // and reporting progress per item as soon as it is ready, not only at the end.
+  const slots = selected.map(() => deferred<WorkerResult>());
+  const producers = mapPool(selected, concurrency, async (ref, i) => {
+    slots[i].resolve(await processItem(db, ref, opts, politeDeps));
+  });
 
   const reports: IngestReport[] = [];
-  for (let i = 0; i < prepared.length; i++) {
-    const report = await store(db, prepared[i]);
+  for (let i = 0; i < selected.length; i++) {
+    const report = await store(db, await slots[i].promise);
     reports.push(report);
-    onReport?.(report, i, prepared.length);
+    onReport?.(report, i, selected.length);
   }
+  await producers;
   return reports;
+}
+
+function dedupeByUrl(items: FeedRef[]): FeedRef[] {
+  const seen = new Set<string>();
+  return items.filter((ref) => (seen.has(ref.url) ? false : (seen.add(ref.url), true)));
+}
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((r) => (resolve = r));
+  return { promise, resolve };
 }
 
 async function processItem(db: DB, ref: FeedRef, opts: FeedOptions, deps: IngestDeps): Promise<WorkerResult> {

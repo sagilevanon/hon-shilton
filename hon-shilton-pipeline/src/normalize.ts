@@ -9,11 +9,19 @@
 const GERSHAYIM = '״'; // ״
 const GERESH = '׳'; // ׳
 
+// Only a quote glyph touching a Hebrew letter is the gershayim/geresh inside a
+// Hebrew acronym (יו"ר, ח"כ); a quote between Latin letters is a real apostrophe
+// (O'Brien, Moody's) and must be left alone, or the name renders wrong and stops
+// matching its Wikidata alias.
+const HE = 'א-ת';
+const DQUOTE = new RegExp(`(?<=[${HE}])["“”]|["“”](?=[${HE}])`, 'g');
+const SQUOTE = new RegExp(`(?<=[${HE}])['‘’]|['‘’](?=[${HE}])`, 'g');
+
 export function normalize(text: string): string {
   return text
     .normalize('NFC')
-    .replace(/["“”]/g, GERSHAYIM)
-    .replace(/['‘’]/g, GERESH)
+    .replace(DQUOTE, GERSHAYIM)
+    .replace(SQUOTE, GERESH)
     .replace(/\s+/g, ' ')
     .trim();
 }

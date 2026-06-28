@@ -4,7 +4,7 @@
 // production extract + store stages and the Phase-A concurrency pool.
 
 import { extractArticle, finalizeExtraction, type IngestDeps } from './pipeline.js';
-import { getCachedArticles, type DB } from './db.js';
+import { getCachedArticles, getGraph, type DB } from './db.js';
 import { mapPool, DEFAULT_CONCURRENCY } from './pool.js';
 import type { ArticleInput, ExtractionResult } from './types.js';
 
@@ -32,10 +32,16 @@ export async function reExtract(src: DB, dst: DB, deps: IngestDeps, opts: ReExtr
       report.errors++;
       continue;
     }
-    const stored = await finalizeExtraction(dst, o.article, o.result);
-    report.entities += stored.entities;
-    report.relations += stored.relations;
+    await finalizeExtraction(dst, o.article, o.result);
   }
+
+  // Count the distinct persisted graph, not the per-article extracted totals:
+  // entity resolution and edge dedup collapse entities/edges recurring across
+  // articles, so summing per-article counts would overstate the candidate size —
+  // the very metric the Phase-C eval compares.
+  const graph = getGraph(dst);
+  report.entities = graph.nodes.length;
+  report.relations = graph.edges.length;
   return report;
 }
 

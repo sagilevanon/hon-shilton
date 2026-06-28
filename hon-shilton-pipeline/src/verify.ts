@@ -15,6 +15,7 @@ export interface VerifyClaim {
 }
 
 export interface Verdict {
+  index?: number;
   supported: boolean;
   reason?: string;
 }
@@ -35,10 +36,11 @@ const SCHEMA = {
         type: 'object',
         additionalProperties: false,
         properties: {
+          index: { type: 'integer' },
           supported: { type: 'boolean' },
           reason: { type: 'string' },
         },
-        required: ['supported'],
+        required: ['index', 'supported'],
       },
     },
   },
@@ -58,7 +60,8 @@ const SYSTEM_PROMPT = [
   'Set supported=true only when the quote clearly states or implies this exact relation',
   'between these two entities. An openly alleged relation ("לכאורה") still counts as',
   'supported — it is something the article reports.',
-  'Return a "verdicts" array with EXACTLY one entry per input item, in the SAME ORDER.',
+  'Return a "verdicts" array with EXACTLY one entry per input item. Set "index" to the',
+  'item number it judges (the #N in the prompt) so each verdict binds to its own claim.',
   'Give a one-line reason for each.',
 ].join('\n');
 
@@ -87,10 +90,17 @@ export async function verifyClaims(claims: VerifyClaim[]): Promise<Verdict[]> {
     systemPrompt: SYSTEM_PROMPT,
     label: 'verify',
   })) as { verdicts?: Verdict[] };
-  if (!so || !Array.isArray(so.verdicts)) {
+  if (!so || !Array.isArray(so.verdicts) || !so.verdicts.every(isVerdict)) {
     throw new Error('claude returned no verdicts matching the schema');
   }
   return so.verdicts;
+}
+
+// A real verdict must carry a boolean `supported`; structured output is not
+// guaranteed to honour the schema, and an element missing it would otherwise be
+// read as falsy and silently auto-reject a valid edge.
+function isVerdict(v: unknown): v is Verdict {
+  return typeof v === 'object' && v !== null && typeof (v as Verdict).supported === 'boolean';
 }
 
 export function verifyClaimsFixture(claims: VerifyClaim[]): Verdict[] {
