@@ -119,6 +119,7 @@ export function storeExtraction(db: DB, article: ArticleInput, result: Extractio
       tgt,
       relation: rel,
       category: relation.category ?? categoryOf(rel),
+      subcategory: relation.subcategory ? normalize(relation.subcategory) : relation.subcategory,
       raw_phrase: relation.raw_phrase ? normalize(relation.raw_phrase) : relation.raw_phrase,
       directed,
       confidence: relation.confidence,

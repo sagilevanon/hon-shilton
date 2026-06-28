@@ -16,6 +16,7 @@ export interface Edge {
   value?: number;
   relation: string;
   category?: string;
+  subcategory?: string | null;
   directed?: boolean;
   sources?: EdgeSource[];
 }

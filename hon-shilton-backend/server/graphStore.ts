@@ -130,7 +130,7 @@ function withSources(rows: Array<{ id: number; directed?: number } & Record<stri
 // category (color + filter), value for thickness, directed + (later) provenance.
 // Shared by every edge query so the rendered shape stays identical everywhere.
 const EDGE_DISPLAY_SELECT = `SELECT e.id, e.src_entity_id AS source, e.tgt_entity_id AS target,
-         e.relation, e.category, e.directed, COUNT(s.id) AS value
+         e.relation, e.category, e.subcategory, e.directed, COUNT(s.id) AS value
   FROM edges e LEFT JOIN edge_sources s ON s.edge_id = e.id`;
 
 type DisplayEdgeRow = { id: number; directed: number } & Record<string, unknown>;

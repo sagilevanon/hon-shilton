@@ -28,6 +28,7 @@ export interface ExtractedRelation {
   target: string; // canonical_name of the target entity
   relation: string; // a RELATION_VOCAB term, or 'other'
   category: Category;
+  subcategory?: string | null; // 1-4 word free-text label, required when category === 'אחר'
   raw_phrase?: string | null; // preserved phrasing, required when relation === 'other'
   directed: boolean;
   confidence: Confidence;
