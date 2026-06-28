@@ -8,6 +8,7 @@ import { Node, Edge, Subgraph } from '@/types';
 // hop depth / hub override / manual exclude params re-run the search live. Only
 // one connection is active at a time; clearing keeps the accumulated graph.
 const DEFAULT_HOPS = 3;
+const DEBOUNCE_MS = 200;
 
 export interface ConnectionParams {
   maxHops: number;
@@ -24,6 +25,7 @@ export interface Connection {
   subgraph: Subgraph | null;
   params: ConnectionParams;
   loading: boolean;
+  error: boolean;
   active: boolean;
   noPath: boolean;
   armTrace: (fromId: number) => void;
@@ -43,23 +45,38 @@ export function useConnection(onMerge: (g: { nodes: Node[]; edges: Edge[] }) => 
   const [subgraph, setSubgraph] = useState<Subgraph | null>(null);
   const [params, setParams] = useState<ConnectionParams>(INITIAL_PARAMS);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
   const mergeRef = useRef(onMerge);
   mergeRef.current = onMerge;
 
+  // Fetch the route whenever endpoints/params change. Debounced + abortable so a
+  // hop-slider drag (one change per intermediate value) coalesces into a single
+  // request and superseded ones are cancelled rather than racing to land stale.
   useEffect(() => {
     if (fromId === null || toId === null) return;
     let live = true;
-    setLoading(true);
-    SubgraphAPI.get(fromId, toId, params)
-      .then((s) => {
-        if (!live) return;
-        setSubgraph(s);
-        mergeRef.current({ nodes: s.nodes, edges: s.edges });
-      })
-      .catch(() => live && setSubgraph(null))
-      .finally(() => live && setLoading(false));
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      setLoading(true);
+      setError(false);
+      SubgraphAPI.get(fromId, toId, params, controller.signal)
+        .then((s) => {
+          if (!live) return;
+          setSubgraph(s);
+          mergeRef.current({ nodes: s.nodes, edges: s.edges });
+        })
+        .catch((e: unknown) => {
+          if (live && (e as Error)?.name !== 'AbortError') {
+            setSubgraph(null);
+            setError(true);
+          }
+        })
+        .finally(() => live && setLoading(false));
+    }, DEBOUNCE_MS);
     return () => {
       live = false;
+      clearTimeout(timer);
+      controller.abort();
     };
   }, [fromId, toId, params]);
 
@@ -67,6 +84,7 @@ export function useConnection(onMerge: (g: { nodes: Node[]; edges: Edge[] }) => 
     setFromId(id);
     setToId(null);
     setSubgraph(null);
+    setError(false);
     setParams(INITIAL_PARAMS);
     setArmed(true);
   }, []);
@@ -76,10 +94,13 @@ export function useConnection(onMerge: (g: { nodes: Node[]; edges: Edge[] }) => 
     if (toId === null) setFromId(null);
   }, [toId]);
 
+  // Re-picking the origin is a no-op: stay armed so the user can still choose a
+  // real destination rather than silently dropping out of arm mode.
   const pickTarget = useCallback(
     (id: number) => {
+      if (id === fromId) return;
+      setToId(id);
       setArmed(false);
-      if (id !== fromId) setToId(id);
     },
     [fromId],
   );
@@ -100,6 +121,7 @@ export function useConnection(onMerge: (g: { nodes: Node[]; edges: Edge[] }) => 
     setFromId(null);
     setToId(null);
     setSubgraph(null);
+    setError(false);
     setParams(INITIAL_PARAMS);
   }, []);
 
@@ -113,6 +135,7 @@ export function useConnection(onMerge: (g: { nodes: Node[]; edges: Edge[] }) => 
     subgraph,
     params,
     loading,
+    error,
     active,
     noPath,
     armTrace,

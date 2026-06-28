@@ -3,8 +3,8 @@ import { Node, Edge, ReviewItem, ReviewAction, SearchResult, NeighborGraph, Subg
 // Using relative path to leverage Vite's proxy
 const API_BASE = '/api';
 
-async function getJson<T>(path: string, what: string): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`);
+async function getJson<T>(path: string, what: string, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, { signal });
   if (!response.ok) throw new Error(`Failed to fetch ${what}`);
   return response.json();
 }
@@ -57,12 +57,12 @@ export interface SubgraphParams {
 }
 
 export const SubgraphAPI = {
-  get: (from: number, to: number, params: SubgraphParams = {}): Promise<Subgraph> => {
+  get: (from: number, to: number, params: SubgraphParams = {}, signal?: AbortSignal): Promise<Subgraph> => {
     const q = new URLSearchParams({ from: String(from), to: String(to) });
     if (params.maxHops) q.set('maxHops', String(params.maxHops));
     if (params.exclude?.length) q.set('exclude', params.exclude.join(','));
     if (params.includeHubs) q.set('includeHubs', '1');
-    return getJson(`/subgraph?${q.toString()}`, 'connection');
+    return getJson(`/subgraph?${q.toString()}`, 'connection', signal);
   },
 };
 

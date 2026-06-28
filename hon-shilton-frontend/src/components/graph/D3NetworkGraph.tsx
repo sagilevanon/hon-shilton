@@ -108,6 +108,10 @@ export default function D3NetworkGraph({
 
     const cx = width / 2;
     const cy = height / 2;
+    // A re-render that only restyles (route highlight, selection) carries the same
+    // node set, all already positioned — skip the expensive force re-settle then
+    // and just repaint at cached coordinates. Re-layout only when a node is new.
+    const needsLayout = simNodes.some((n) => !posRef.current.has(n.id));
     simNodes.forEach((n, i) => {
       const p = posRef.current.get(n.id);
       if (p) ((n.x = p.x), (n.y = p.y));
@@ -135,7 +139,7 @@ export default function D3NetworkGraph({
       .force('x', d3.forceX(cx).strength(0.045))
       .force('y', d3.forceY(cy).strength(0.045))
       .stop();
-    sim.tick(320);
+    if (needsLayout) sim.tick(320);
     simNodes.forEach((n) => posRef.current.set(n.id, { x: n.x, y: n.y }));
 
     const linkG = root.append('g');

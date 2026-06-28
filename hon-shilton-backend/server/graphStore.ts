@@ -320,6 +320,13 @@ export interface RawPath {
 // credibility (max-of-min corroboration, then confidence). A recursive CTE walks
 // the symmetric adjacency (each edge contributes both arcs), carrying the visited
 // node path (cycle guard) and the bottleneck corroboration/confidence so far.
+//
+// The CTE enumerates every simple walk up to its hop bound, which grows
+// exponentially on dense graphs. To keep that bounded we deepen the bound one hop
+// at a time and stop at the first that reaches the target: since the outer query
+// orders by hops first, the path found at the smallest feasible bound is exactly
+// the one the full-depth query would return — so this preserves results while
+// only paying the cost of the actual path length, not the full maxHops frontier.
 export function shortestPath(from: number, to: number, exclude: number[], maxHops: number): RawPath | null {
   if (!isReady()) return null;
   const visible = visibleEdgeCondition('e.status');
@@ -329,35 +336,36 @@ export function shortestPath(from: number, to: number, exclude: number[], maxHop
      FROM edges e WHERE ${visible}`;
   const excludeClause = exclude.length ? `AND arc.b NOT IN (${exclude.map(() => '?').join(',')})` : '';
 
-  const row = db!
-    .prepare(
-      `WITH RECURSIVE
-         arc(a, b, edge_id, corr, conf) AS (
-           ${arc('src_entity_id', 'tgt_entity_id')}
-           UNION ALL
-           ${arc('tgt_entity_id', 'src_entity_id')}
-         ),
-         walk(node, hops, min_corr, min_conf, npath, epath) AS (
-           SELECT ?, 0, 1000000, 1000000, ',' || ? || ',', ''
-           UNION ALL
-           SELECT arc.b, walk.hops + 1,
-                  MIN(walk.min_corr, arc.corr), MIN(walk.min_conf, arc.conf),
-                  walk.npath || arc.b || ',', walk.epath || arc.edge_id || ','
-           FROM walk JOIN arc ON arc.a = walk.node
-           WHERE walk.hops < ? AND walk.node != ?
-             AND instr(walk.npath, ',' || arc.b || ',') = 0
-             ${excludeClause}
-         )
-       SELECT npath, epath, hops FROM walk
-       WHERE node = ?
-       ORDER BY hops ASC, min_corr DESC, min_conf DESC
-       LIMIT 1`,
-    )
-    .get(from, from, maxHops, to, ...exclude, to) as
-    | { npath: string; epath: string; hops: number }
-    | undefined;
+  const stmt = db!.prepare(
+    `WITH RECURSIVE
+       arc(a, b, edge_id, corr, conf) AS (
+         ${arc('src_entity_id', 'tgt_entity_id')}
+         UNION ALL
+         ${arc('tgt_entity_id', 'src_entity_id')}
+       ),
+       walk(node, hops, min_corr, min_conf, npath, epath) AS (
+         SELECT ?, 0, 1000000, 1000000, ',' || ? || ',', ''
+         UNION ALL
+         SELECT arc.b, walk.hops + 1,
+                MIN(walk.min_corr, arc.corr), MIN(walk.min_conf, arc.conf),
+                walk.npath || arc.b || ',', walk.epath || arc.edge_id || ','
+         FROM walk JOIN arc ON arc.a = walk.node
+         WHERE walk.hops < ? AND walk.node != ?
+           AND instr(walk.npath, ',' || arc.b || ',') = 0
+           ${excludeClause}
+       )
+     SELECT npath, epath, hops FROM walk
+     WHERE node = ?
+     ORDER BY hops ASC, min_corr DESC, min_conf DESC
+     LIMIT 1`,
+  );
 
-  if (!row) return null;
   const toIds = (s: string) => s.split(',').filter(Boolean).map(Number);
-  return { nodeIds: toIds(row.npath), edgeIds: toIds(row.epath), hops: row.hops };
+  for (let bound = 1; bound <= maxHops; bound++) {
+    const row = stmt.get(from, from, bound, to, ...exclude, to) as
+      | { npath: string; epath: string; hops: number }
+      | undefined;
+    if (row) return { nodeIds: toIds(row.npath), edgeIds: toIds(row.epath), hops: row.hops };
+  }
+  return null;
 }

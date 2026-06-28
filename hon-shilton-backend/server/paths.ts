@@ -33,11 +33,16 @@ export interface SubgraphPaths {
 // The degree at which an entity counts as a "major hub": the value of the k-th
 // most-connected entity for the top (1 - percentile) fraction. Nodes whose degree
 // is >= this are hubs (ties at the boundary are all-in, so the cutoff is stable).
+// On a uniform/near-uniform graph the percentile collapses to the minimum degree,
+// which would brand every node a hub — a hub must stand out, so when the cutoff
+// does not exceed the floor we report no hubs (Infinity) instead.
 export function hubThreshold(degrees: number[], percentile = HUB_PERCENTILE): number {
   if (degrees.length === 0) return Infinity;
   const desc = [...degrees].sort((a, b) => b - a);
   const k = Math.max(1, Math.ceil((1 - percentile) * desc.length));
-  return desc[k - 1];
+  const cutoff = desc[k - 1];
+  const floor = desc[desc.length - 1];
+  return cutoff > floor ? cutoff : Infinity;
 }
 
 const unique = (xs: number[]): number[] => [...new Set(xs)];

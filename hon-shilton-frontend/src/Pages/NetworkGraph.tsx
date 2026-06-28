@@ -304,6 +304,7 @@ export default function NetworkGraphPage() {
           suppressedHubs={connection.subgraph?.suppressedHubs ?? []}
           noPath={connection.noPath}
           loading={connection.loading}
+          error={connection.error}
           onHops={connection.setHops}
           onToggleHubs={connection.toggleHubs}
           onRemoveExclude={connection.removeExclude}

@@ -19,6 +19,7 @@ import {
   isReviewGateEnabled,
 } from './graphStore.js';
 import { findPaths } from './paths.js';
+import { isFlagOn } from './flags.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -110,7 +111,7 @@ export async function getSubgraph(req: FastifyRequest, reply: FastifyReply) {
   const maxHops = clampInt(q.maxHops, DEFAULT_HOPS, MIN_HOPS, MAX_HOPS);
   const result = findPaths(
     { shortestPath: storeShortestPath, degrees: storeDegrees },
-    { from: from.value, to: to.value, maxHops, exclude: parseIdList(q.exclude), includeHubs: isTruthy(q.includeHubs) },
+    { from: from.value, to: to.value, maxHops, exclude: parseIdList(q.exclude), includeHubs: isFlagOn(q.includeHubs) },
   );
 
   return reply.send({
@@ -134,10 +135,6 @@ function parseEndpoint(v: unknown): { value: number; code?: number; error?: stri
 function parseIdList(v: unknown): number[] {
   if (typeof v !== 'string' || v === '') return [];
   return v.split(',').map(Number).filter(Number.isInteger);
-}
-
-function isTruthy(v: unknown): boolean {
-  return v != null && ['1', 'true', 'on', 'yes'].includes(String(v).toLowerCase());
 }
 
 function clampInt(v: unknown, fallback: number, min: number, max: number): number {

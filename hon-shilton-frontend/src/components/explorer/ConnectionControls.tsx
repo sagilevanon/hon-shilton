@@ -16,6 +16,7 @@ interface ConnectionControlsProps {
   suppressedHubs: Node[];
   noPath: boolean;
   loading: boolean;
+  error: boolean;
   onHops: (n: number) => void;
   onToggleHubs: () => void;
   onRemoveExclude: (id: number) => void;
@@ -35,6 +36,7 @@ export default function ConnectionControls({
   suppressedHubs,
   noPath,
   loading,
+  error,
   onHops,
   onToggleHubs,
   onRemoveExclude,
@@ -54,6 +56,8 @@ export default function ConnectionControls({
         <span className="hs-mono shrink-0 text-[11px]" style={{ color: 'var(--bone-soft)' }}>
           {loading ? (
             <Loader2 className="h-4 w-4 animate-spin" style={{ color: 'var(--brass)' }} />
+          ) : error ? (
+            <span style={{ color: 'var(--stamp)' }}>שגיאה</span>
           ) : noPath ? (
             'אין מסלול'
           ) : (
@@ -119,6 +123,18 @@ export default function ConnectionControls({
               להצגתם
             </button>
           </span>
+        </div>
+      )}
+
+      {error && !loading && (
+        <div
+          className="mt-3 rounded-lg px-3 py-2 text-xs leading-relaxed"
+          style={{ background: 'rgba(200,16,46,0.1)', color: 'var(--bone)' }}
+        >
+          טעינת הקשר נכשלה.{' '}
+          <button onClick={() => onHops(hops)} className="font-bold underline" style={{ color: 'var(--brass)' }}>
+            ניסיון חוזר
+          </button>
         </div>
       )}
 

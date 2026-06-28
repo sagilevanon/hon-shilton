@@ -2,12 +2,10 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { buildApp } from './app.js';
 import { initStore } from './graphStore.js';
+import { isFlagOn } from './flags.js';
 
 // REVIEW_GATE (default off): when on, the public graph serves approved edges
 // only and the review queue is the publishing gate.
-function isFlagOn(value: string | undefined): boolean {
-  return value != null && ['1', 'true', 'on', 'yes'].includes(value.toLowerCase());
-}
 
 // ES modules replacement for __dirname
 const __filename = fileURLToPath(import.meta.url);
