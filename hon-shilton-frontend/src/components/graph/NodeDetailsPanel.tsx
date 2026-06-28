@@ -1,16 +1,18 @@
 import { motion } from 'framer-motion';
 import { Node } from '@/types';
-import { X, User, Building2, Share2, ExternalLink } from 'lucide-react';
+import { X, User, Building2, Share2, ExternalLink, Spline, EyeOff } from 'lucide-react';
 
 interface NodeDetailsPanelProps {
   node: Node;
   onClose: () => void;
   onExpand: (id: number) => void;
+  onTrace?: (id: number) => void;
+  onExclude?: (id: number) => void;
 }
 
 const isPerson = (t: string) => t.toLowerCase() === 'person';
 
-export default function NodeDetailsPanel({ node, onClose, onExpand }: NodeDetailsPanelProps) {
+export default function NodeDetailsPanel({ node, onClose, onExpand, onTrace, onExclude }: NodeDetailsPanelProps) {
   const person = isPerson(node.type);
   const tone = person ? 'var(--ink)' : 'var(--brass)';
   const aliases = node.aliases ?? [];
@@ -94,7 +96,7 @@ export default function NodeDetailsPanel({ node, onClose, onExpand }: NodeDetail
         )}
       </div>
 
-      <div className="p-5">
+      <div className="space-y-2 p-5">
         <button
           onClick={() => onExpand(node.id)}
           className="flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3 text-sm font-bold text-white transition-transform active:scale-[0.99]"
@@ -103,6 +105,28 @@ export default function NodeDetailsPanel({ node, onClose, onExpand }: NodeDetail
           <Share2 className="h-4 w-4" />
           הרחבת הקשרים של צומת זה
         </button>
+
+        {onTrace && (
+          <button
+            onClick={() => onTrace(node.id)}
+            className="flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-bold transition-colors"
+            style={{ border: '1px solid var(--paper-edge)', color: 'var(--ink)' }}
+          >
+            <Spline className="h-4 w-4" style={{ color: 'var(--stamp)' }} />
+            מציאת קשר לישות אחרת
+          </button>
+        )}
+
+        {onExclude && (
+          <button
+            onClick={() => onExclude(node.id)}
+            className="flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors"
+            style={{ border: '1px solid var(--paper-edge)', color: 'var(--ink-soft)' }}
+          >
+            <EyeOff className="h-4 w-4" />
+            החרגת הצומת מהמסלול
+          </button>
+        )}
       </div>
     </motion.aside>
   );

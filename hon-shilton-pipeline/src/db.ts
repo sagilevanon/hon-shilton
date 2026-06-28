@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS edges (
   created_at    TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE (src_entity_id, tgt_entity_id, relation)
 ) STRICT;
+CREATE INDEX IF NOT EXISTS idx_edges_src ON edges(src_entity_id);
+CREATE INDEX IF NOT EXISTS idx_edges_tgt ON edges(tgt_entity_id);
 
 CREATE TABLE IF NOT EXISTS edge_sources (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,

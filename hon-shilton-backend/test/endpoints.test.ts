@@ -77,6 +77,37 @@ function buildEgoDb(file: string): void {
   db.close();
 }
 
+// Path-finder DB (mirrors test/paths.test.ts): A=1 B=2 C=3 D=4 E=5 F=6 HUB=7.
+// A-B-C-D chain, A-E-D 2-hop alt, A-HUB-D via hub; HUB also links B,C,E,F so it
+// is the lone high-degree hub, and F hangs off HUB only (unreachable without it).
+function buildPathDb(file: string): void {
+  const db = new DatabaseSync(file);
+  db.exec(`
+    CREATE TABLE entities (id INTEGER PRIMARY KEY AUTOINCREMENT, qid TEXT, canonical_name TEXT NOT NULL,
+      type TEXT NOT NULL, subtype TEXT, description TEXT, image TEXT) STRICT;
+    CREATE TABLE aliases (id INTEGER PRIMARY KEY AUTOINCREMENT, entity_id INTEGER, alias TEXT) STRICT;
+    CREATE TABLE edges (id INTEGER PRIMARY KEY AUTOINCREMENT, src_entity_id INTEGER, tgt_entity_id INTEGER,
+      relation TEXT, category TEXT, confidence TEXT, status TEXT DEFAULT 'approved',
+      verification TEXT DEFAULT 'supported', directed INTEGER DEFAULT 1, created_at TEXT) STRICT;
+    CREATE TABLE edge_sources (id INTEGER PRIMARY KEY AUTOINCREMENT, edge_id INTEGER, url TEXT, outlet TEXT,
+      published_date TEXT, quote TEXT) STRICT;
+  `);
+  const ent = db.prepare('INSERT INTO entities (canonical_name, type) VALUES (?, ?)');
+  ['A', 'B', 'C', 'D', 'E', 'F', 'HUB'].forEach((n) => ent.run(n, 'organization'));
+  const edge = db.prepare(
+    "INSERT INTO edges (src_entity_id, tgt_entity_id, relation, category, confidence) VALUES (?, ?, 'קשור', 'אחר', 'med')",
+  );
+  const pairs: Array<[number, number]> = [
+    [1, 2], [2, 3], [3, 4], [1, 5], [5, 4], [1, 7], [7, 4], [7, 2], [7, 3], [7, 5], [7, 6],
+  ];
+  const src = db.prepare("INSERT INTO edge_sources (edge_id, url, outlet, quote) VALUES (?, ?, 'ynet', 'q')");
+  pairs.forEach(([s, t], i) => {
+    edge.run(s, t);
+    src.run(i + 1, `http://e${i + 1}`);
+  });
+  db.close();
+}
+
 describe('graph + review API (SQLite-backed)', () => {
   let tmp: string;
   let empty: string;
@@ -287,13 +318,69 @@ describe('graph + review API (SQLite-backed)', () => {
     });
   });
 
+  describe('connection finder /subgraph (Phase 8)', () => {
+    function paths() {
+      const p = path.join(tmp, `paths-${seq++}.db`);
+      buildPathDb(p);
+      return appWith(p);
+    }
+
+    it('returns vertex-disjoint shortest paths + a flat union, shortest first', async () => {
+      const r = await paths().get('/subgraph?from=1&to=4');
+      assert.equal(r.status, 200);
+      assert.equal(r.body.from, 1);
+      assert.equal(r.body.to, 4);
+      assert.deepEqual(r.body.paths.map((p: { nodes: number[] }) => p.nodes), [[1, 5, 4], [1, 2, 3, 4]]);
+      assert.deepEqual(r.body.paths.map((p: { hops: number }) => p.hops), [2, 3]);
+      // The flat union hydrates display nodes + edges (with sources) for the routes.
+      assert.deepEqual(r.body.nodes.map((n: { id: number }) => n.id).sort((a: number, b: number) => a - b), [1, 2, 3, 4, 5]);
+      assert.ok(r.body.edges.every((e: { sources: unknown[] }) => Array.isArray(e.sources)));
+      assert.ok(!r.body.nodes.some((n: { id: number }) => n.id === 7), 'the hub is excluded by default');
+    });
+
+    it('default-suppresses major hubs and reports them; the override restores them', async () => {
+      const off = await paths().get('/subgraph?from=1&to=4');
+      assert.deepEqual(off.body.suppressedHubs.map((n: { id: number }) => n.id), [7]);
+
+      const on = await paths().get('/subgraph?from=1&to=4&includeHubs=1');
+      assert.deepEqual(on.body.suppressedHubs, []);
+      assert.ok(on.body.nodes.some((n: { id: number }) => n.id === 7), 'the hub now carries a route');
+    });
+
+    it('honors a manual exclude list', async () => {
+      const r = await paths().get('/subgraph?from=1&to=4&exclude=5');
+      assert.deepEqual(r.body.paths.map((p: { nodes: number[] }) => p.nodes), [[1, 2, 3, 4]]);
+    });
+
+    it('a successful negative answer: 200 + paths:[] when there is no connection', async () => {
+      const r = await paths().get('/subgraph?from=1&to=6'); // F reachable only via the suppressed hub
+      assert.equal(r.status, 200);
+      assert.deepEqual(r.body.paths, []);
+      assert.deepEqual(r.body.suppressedHubs.map((n: { id: number }) => n.id), [7]);
+    });
+
+    it('the hop cap can starve an otherwise-reachable target', async () => {
+      const r = await paths().get('/subgraph?from=1&to=4&exclude=5&maxHops=2'); // only the 3-hop chain remains
+      assert.deepEqual(r.body.paths, []);
+    });
+
+    it('status codes: 400 missing, 422 non-integer or self, 404 unknown', async () => {
+      const api = paths();
+      assert.equal((await api.get('/subgraph?to=4')).status, 400, 'missing from');
+      assert.equal((await api.get('/subgraph?from=abc&to=4')).status, 422, 'non-integer');
+      assert.equal((await api.get('/subgraph?from=1&to=1')).status, 422, 'from === to');
+      assert.equal((await api.get('/subgraph?from=1&to=999')).status, 404, 'unknown entity');
+    });
+  });
+
   it('returns 503 when the DB has no graph tables yet', async () => {
     const r = await appWith(empty).get('/Nodes');
     assert.equal(r.status, 503);
   });
 
-  it('returns 503 for search/neighbors before the pipeline runs', async () => {
+  it('returns 503 for search/neighbors/subgraph before the pipeline runs', async () => {
     assert.equal((await appWith(empty).get('/search?q=x')).status, 503);
     assert.equal((await appWith(empty).get('/neighbors/1')).status, 503);
+    assert.equal((await appWith(empty).get('/subgraph?from=1&to=2')).status, 503);
   });
 });

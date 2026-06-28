@@ -5,6 +5,7 @@ import {
   getEdges,
   getSearch,
   getNeighbors,
+  getSubgraph,
   getGraphAddition,
   getReviewQueue,
   postReview,
@@ -23,6 +24,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.get('/Edges', getEdges);
   app.get('/search', getSearch);
   app.get('/neighbors/:id', getNeighbors);
+  app.get('/subgraph', getSubgraph);
   app.get('/review/queue', getReviewQueue);
   app.post('/review/:edgeId', postReview);
   app.get('/graph-addition.json', getGraphAddition);

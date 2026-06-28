@@ -8,17 +8,27 @@ import {
   searchEntities as storeSearch,
   getNeighbors as storeNeighbors,
   getReviewQueue as storeReviewQueue,
+  getNodesByIds as storeNodesByIds,
+  getEdgesByIds as storeEdgesByIds,
+  getEntityDegrees as storeDegrees,
+  shortestPath as storeShortestPath,
+  entitiesExist as storeEntitiesExist,
   setEdgeStatus,
   ReviewAction,
   isReady,
   isReviewGateEnabled,
 } from './graphStore.js';
+import { findPaths } from './paths.js';
+import { isFlagOn } from './flags.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const NOT_READY = { error: 'Graph store not initialized — run the pipeline (hon-shilton-pipeline) first' };
 const DEFAULT_LIMIT = 20;
 const NEIGHBOR_LIMIT = 8;
+const DEFAULT_HOPS = 3;
+const MIN_HOPS = 2;
+const MAX_HOPS = 6;
 
 // GET /config — feature flags the frontend adapts to (e.g. whether to show the
 // review queue). Available before the DB is populated.
@@ -80,6 +90,51 @@ export async function postReview(req: FastifyRequest, reply: FastifyReply) {
 
 function isReviewAction(v: unknown): v is ReviewAction {
   return v === ReviewAction.Approve || v === ReviewAction.Reject;
+}
+
+// GET /subgraph?from=&to=&maxHops=&exclude=&includeHubs= — up to K vertex-disjoint
+// shortest paths between two entities (the connection finder), plus a flat
+// node/edge union so the explorer renders with no extra fetches. Status mapping:
+// 400 missing endpoint · 422 non-integer or from===to · 404 unknown entity ·
+// 503 DB not ready · 200 + paths:[] for "no connection within maxHops".
+export async function getSubgraph(req: FastifyRequest, reply: FastifyReply) {
+  if (!isReady()) return reply.code(503).send(NOT_READY);
+  const q = req.query as Record<string, unknown>;
+
+  const from = parseEndpoint(q.from);
+  const to = parseEndpoint(q.to);
+  if (from.code) return reply.code(from.code).send({ error: from.error });
+  if (to.code) return reply.code(to.code).send({ error: to.error });
+  if (from.value === to.value) return reply.code(422).send({ error: 'from and to must be different entities' });
+  if (!storeEntitiesExist([from.value, to.value])) return reply.code(404).send({ error: 'unknown entity id' });
+
+  const maxHops = clampInt(q.maxHops, DEFAULT_HOPS, MIN_HOPS, MAX_HOPS);
+  const result = findPaths(
+    { shortestPath: storeShortestPath, degrees: storeDegrees },
+    { from: from.value, to: to.value, maxHops, exclude: parseIdList(q.exclude), includeHubs: isFlagOn(q.includeHubs) },
+  );
+
+  return reply.send({
+    from: from.value,
+    to: to.value,
+    paths: result.paths,
+    nodes: storeNodesByIds(result.nodeIds),
+    edges: storeEdgesByIds(result.edgeIds),
+    suppressedHubs: storeNodesByIds(result.suppressedHubIds),
+  });
+}
+
+// Missing/empty → 400; present but not an integer → 422 (well-formed but unprocessable).
+function parseEndpoint(v: unknown): { value: number; code?: number; error?: string } {
+  if (v === undefined || v === null || v === '') return { value: NaN, code: 400, error: 'from and to are required' };
+  const n = Number(v);
+  if (!Number.isInteger(n)) return { value: NaN, code: 422, error: 'from and to must be integers' };
+  return { value: n };
+}
+
+function parseIdList(v: unknown): number[] {
+  if (typeof v !== 'string' || v === '') return [];
+  return v.split(',').map(Number).filter(Number.isInteger);
 }
 
 function clampInt(v: unknown, fallback: number, min: number, max: number): number {

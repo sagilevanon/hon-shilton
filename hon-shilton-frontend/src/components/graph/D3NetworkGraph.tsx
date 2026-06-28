@@ -3,6 +3,13 @@ import * as d3 from 'd3';
 import { Node, Edge } from '@/types';
 import { CATEGORIES, categoryMeta, edgeKey } from '@/lib/graph';
 
+export interface RouteOverlay {
+  nodeIds: Set<number>;
+  edgeKeys: Set<string>;
+  fromId: number;
+  toId: number;
+}
+
 interface D3NetworkGraphProps {
   nodes: Node[];
   edges: Edge[];
@@ -11,6 +18,7 @@ interface D3NetworkGraphProps {
   selectedEdgeKey: string | null;
   expandable: Set<number>;
   remaining: Record<number, number>;
+  route: RouteOverlay | null;
   onNodeClick: (node: Node) => void;
   onEdgeClick: (edge: Edge) => void;
   onExpandNode: (id: number) => void;
@@ -36,6 +44,7 @@ export default function D3NetworkGraph({
   selectedEdgeKey,
   expandable,
   remaining,
+  route,
   onNodeClick,
   onEdgeClick,
   onExpandNode,
@@ -48,6 +57,16 @@ export default function D3NetworkGraph({
     const width = window.innerWidth;
     const height = window.innerHeight;
     const radiusOf = (id: number) => (id === focalId ? 30 : 22);
+
+    // Focus mode: when a connection overlay is active, light up its route
+    // nodes/edges and dim everything else to context.
+    const onRoute = (d: SimEdge) => !!route && route.edgeKeys.has(keyOf(d));
+    const linkOpacity = (d: SimEdge) =>
+      route ? (onRoute(d) ? 0.96 : 0.05) : keyOf(d) === selectedEdgeKey ? 0.98 : 0.42;
+    const linkWidthOf = (d: SimEdge) =>
+      linkWidth(d.value) + (route && onRoute(d) ? 2.5 : 0) + (keyOf(d) === selectedEdgeKey ? 2.5 : 0);
+    const labelOpacity = (d: SimEdge) => (route && !onRoute(d) ? 0.05 : 1);
+    const nodeOpacity = (d: SimNode) => (route && !route.nodeIds.has(d.id) ? 0.14 : 1);
 
     const svg = d3.select(svgRef.current);
     svg.selectAll('*').remove();
@@ -89,6 +108,10 @@ export default function D3NetworkGraph({
 
     const cx = width / 2;
     const cy = height / 2;
+    // A re-render that only restyles (route highlight, selection) carries the same
+    // node set, all already positioned — skip the expensive force re-settle then
+    // and just repaint at cached coordinates. Re-layout only when a node is new.
+    const needsLayout = simNodes.some((n) => !posRef.current.has(n.id));
     simNodes.forEach((n, i) => {
       const p = posRef.current.get(n.id);
       if (p) ((n.x = p.x), (n.y = p.y));
@@ -116,7 +139,7 @@ export default function D3NetworkGraph({
       .force('x', d3.forceX(cx).strength(0.045))
       .force('y', d3.forceY(cy).strength(0.045))
       .stop();
-    sim.tick(320);
+    if (needsLayout) sim.tick(320);
     simNodes.forEach((n) => posRef.current.set(n.id, { x: n.x, y: n.y }));
 
     const linkG = root.append('g');
@@ -126,9 +149,11 @@ export default function D3NetworkGraph({
       .join('line')
       .attr('class', 'hs-link')
       .attr('stroke', colorOf)
-      .attr('stroke-opacity', (d) => (keyOf(d) === selectedEdgeKey ? 0.98 : 0.42))
+      .attr('stroke-opacity', linkOpacity)
       .attr('stroke-linecap', 'round')
-      .attr('stroke-width', (d) => linkWidth(d.value) + (keyOf(d) === selectedEdgeKey ? 2.5 : 0))
+      .attr('stroke-width', linkWidthOf)
+      .attr('data-route', (d) => (onRoute(d) ? '1' : null))
+      .style('filter', (d) => (route && onRoute(d) ? `drop-shadow(0 0 5px ${colorOf(d)})` : null))
       .attr('marker-end', (d) => (d.directed === false ? null : `url(#arrow-${categoryMeta(d.category).id})`));
 
     // Transparent fat lines give thin edges a clickable hit area.
@@ -150,6 +175,7 @@ export default function D3NetworkGraph({
       .attr('class', 'hs-link-label')
       .attr('text-anchor', 'middle')
       .style('pointer-events', 'none')
+      .style('opacity', labelOpacity)
       .text((d) => d.relation);
 
     const nodeSel = root
@@ -158,6 +184,7 @@ export default function D3NetworkGraph({
       .data(simNodes)
       .join('g')
       .attr('class', 'hs-node')
+      .style('opacity', nodeOpacity)
       .call(
         d3
           .drag<SVGGElement, SimNode>()
@@ -186,6 +213,21 @@ export default function D3NetworkGraph({
         .attr('x2', (d) => Math.cos(a) * (radiusOf(d.id) + 13))
         .attr('y2', (d) => Math.sin(a) * (radiusOf(d.id) + 13));
     });
+
+    // Connection endpoints get distinct rings: origin (brass) → destination (stamp).
+    if (route) {
+      const endpointRing = (id: number, color: string) =>
+        nodeSel
+          .filter((d) => d.id === id)
+          .append('circle')
+          .attr('class', 'hs-endpoint')
+          .attr('r', (d) => radiusOf(d.id) + 6)
+          .attr('fill', 'none')
+          .attr('stroke', color)
+          .attr('stroke-width', 3);
+      endpointRing(route.fromId, 'var(--brass)');
+      endpointRing(route.toId, 'var(--stamp)');
+    }
 
     nodeSel
       .append('circle')
@@ -271,9 +313,9 @@ export default function D3NetworkGraph({
       labelSel.style('opacity', (e) => (touches(e) ? 1 : 0.05));
     }
     function clearHighlight() {
-      nodeSel.style('opacity', 1);
-      linkSel.style('stroke-opacity', (d) => (keyOf(d) === selectedEdgeKey ? 0.98 : 0.42));
-      labelSel.style('opacity', 1);
+      nodeSel.style('opacity', nodeOpacity);
+      linkSel.style('stroke-opacity', linkOpacity);
+      labelSel.style('opacity', labelOpacity);
     }
 
     ticked();
@@ -294,7 +336,7 @@ export default function D3NetworkGraph({
     svg.transition().duration(500).call(zoom.transform as any, t);
 
     return () => void sim.stop();
-  }, [nodes, edges, focalId, selectedId, selectedEdgeKey, expandable, remaining, onNodeClick, onEdgeClick, onExpandNode]);
+  }, [nodes, edges, focalId, selectedId, selectedEdgeKey, expandable, remaining, route, onNodeClick, onEdgeClick, onExpandNode]);
 
   return <svg ref={svgRef} className="h-full w-full" style={{ display: 'block' }} />;
 }
