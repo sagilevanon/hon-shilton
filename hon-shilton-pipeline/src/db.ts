@@ -6,6 +6,7 @@ import {DatabaseSync} from 'node:sqlite';
 import {ArticleStatus} from './article-status.js';
 import {Verification} from './verification-status.js';
 import {EdgeStatus} from './edge-status.js';
+import {canonicalizeEntity} from './gazetteer.js';
 import type {ArticleInput, ExtractedEntity, SourceInput} from './types.js';
 
 export type DB = DatabaseSync;
@@ -96,6 +97,20 @@ export function isArticleCached(db: DB, url: string): boolean {
   return !!row;
 }
 
+// All successfully-cached article bodies, as extractor inputs. Lets a candidate
+// model/effort config be re-extracted over the exact same text — no re-fetch.
+export function getCachedArticles(db: DB, limit?: number): ArticleInput[] {
+  const lim = limit != null ? ' LIMIT ?' : '';
+  const params = limit != null ? [ArticleStatus.Ok, Number(limit)] : [ArticleStatus.Ok];
+  const rows = db
+    .prepare(
+      `SELECT url, title, raw_body AS body, outlet, published_date AS publishedDate, author
+       FROM articles WHERE status = ? AND raw_body IS NOT NULL AND raw_body != '' ORDER BY id${lim}`,
+    )
+    .all(...params) as unknown as Array<ArticleInput & { outlet: string | null }>;
+  return rows.map((r) => ({ ...r, outlet: r.outlet ?? 'ynet' }));
+}
+
 function resolveEntity(db: DB, e: ExtractedEntity): {id: number} | undefined {
   if (e.qid) {
     const byQid = db.prepare('SELECT id FROM entities WHERE qid = ?').get(e.qid) as {id: number} | undefined;
@@ -114,8 +129,11 @@ function resolveEntity(db: DB, e: ExtractedEntity): {id: number} | undefined {
 
 // Resolve an entity QID-first, canonical-name-second, alias-third (only when the
 // alias maps to a single entity); insert if new; merge aliases. This is what keeps
-// one real person on one node as it recurs across articles.
-export function upsertEntity(db: DB, e: ExtractedEntity): number {
+// one real person on one node as it recurs across articles. The gazetteer
+// (Layer 2) first folds known synonym spellings onto one canonical name + QID so
+// the resolution below collapses them, keeping the original spelling as an alias.
+export function upsertEntity(db: DB, raw: ExtractedEntity): number {
+  const e = canonicalizeEntity(raw);
   const row = resolveEntity(db, e);
 
   let id: number;
@@ -185,11 +203,14 @@ export interface VerificationRow {
   relation: string;
   directed: number;
   quote: string | null;
+  url: string | null;
 }
 
 // Edges awaiting a verification verdict, with their entity names and one
-// representative supporting quote. By default only 'unchecked' edges (so the
-// stage is idempotent / resumable); `force` re-checks every edge.
+// representative supporting quote + the article it came from (so the verify
+// stage can batch all of one article's edges into a single call). By default
+// only 'unchecked' edges (so the stage is idempotent / resumable); `force`
+// re-checks every edge.
 export function getEdgesToVerify(db: DB, force: boolean, limit?: number): VerificationRow[] {
   const params: (string | number)[] = [];
   let where = '';
@@ -206,11 +227,15 @@ export function getEdgesToVerify(db: DB, force: boolean, limit?: number): Verifi
     .prepare(
       `SELECT e.id, e.relation, e.directed,
               src.canonical_name AS source, tgt.canonical_name AS target,
-              (SELECT s.quote FROM edge_sources s
-                 WHERE s.edge_id = e.id AND s.quote IS NOT NULL AND s.quote != '' LIMIT 1) AS quote
+              rep.quote AS quote, rep.url AS url
        FROM edges e
        JOIN entities src ON src.id = e.src_entity_id
        JOIN entities tgt ON tgt.id = e.tgt_entity_id
+       LEFT JOIN edge_sources rep ON rep.id = (
+         SELECT s.id FROM edge_sources s
+         WHERE s.edge_id = e.id AND s.quote IS NOT NULL AND s.quote != ''
+         ORDER BY s.id LIMIT 1
+       )
        ${where}
        ORDER BY e.id${lim}`,
     )

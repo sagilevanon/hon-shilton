@@ -1,25 +1,28 @@
 // The verification stage: a distinct, independently-runnable pass over
-// already-extracted edges. For each unchecked edge it asks the verifier whether
-// the supporting quote backs the relation, then writes the verdict. Unsupported
-// edges are auto-rejected (status='rejected') so they never reach the human
-// review queue — keeping the reviewer's load to the minimum.
+// already-extracted edges. Edges are grouped by the article their supporting
+// quote came from and fact-checked one article per Claude call (returning a
+// verdict per edge). On a misaligned/failed batch it falls back to per-edge
+// calls so one bad batch never loses a whole article. Unsupported edges are
+// auto-rejected (status='rejected') so they never reach the human review queue.
 
 import { Verification } from './verification-status.js';
 import { EdgeStatus } from './edge-status.js';
 import { getEdgesToVerify, setVerification, setEdgeStatus, type DB, type VerificationRow } from './db.js';
-import { verifyClaim, verifyFixture, type Verifier } from './verify.js';
+import { verifyClaims, verifyClaimsFixture, type BatchVerifier, type VerifyClaim, type Verdict } from './verify.js';
+import { mapPool, DEFAULT_CONCURRENCY } from './pool.js';
 
 export interface VerifyDeps {
-  verify: Verifier;
+  verify: BatchVerifier;
 }
 
 export function buildVerifyDeps(useFixture: boolean): VerifyDeps {
-  return { verify: useFixture ? async (c) => verifyFixture(c) : verifyClaim };
+  return { verify: useFixture ? async (claims) => verifyClaimsFixture(claims) : verifyClaims };
 }
 
 export interface VerifyOptions {
   force?: boolean;
   limit?: number;
+  concurrency?: number;
 }
 
 export enum VerifyResult {
@@ -33,9 +36,14 @@ export interface VerifyReport {
   supported: number;
   unsupported: number;
   errors: number;
+  calls: number;
 }
 
 export type VerifyListener = (row: VerificationRow, result: VerifyResult, reason?: string) => void;
+
+type RowOutcome = { row: VerificationRow; verdict: Verdict } | { row: VerificationRow; error: string };
+
+const NO_QUOTE: Verdict = { supported: false, reason: 'no supporting quote' };
 
 export async function runVerification(
   db: DB,
@@ -44,35 +52,91 @@ export async function runVerification(
   onResult?: VerifyListener,
 ): Promise<VerifyReport> {
   const rows = getEdgesToVerify(db, opts.force ?? false, opts.limit);
-  const report: VerifyReport = { total: rows.length, supported: 0, unsupported: 0, errors: 0 };
+  const report: VerifyReport = { total: rows.length, supported: 0, unsupported: 0, errors: 0, calls: 0 };
 
-  for (const row of rows) {
-    try {
-      const verdict = row.quote
-        ? await deps.verify({
-            source: row.source,
-            target: row.target,
-            relation: row.relation,
-            directed: !!row.directed,
-            quote: row.quote,
-          })
-        : { supported: false, reason: 'no supporting quote' };
+  const noQuote = rows.filter((r) => !r.quote);
+  const groups = [...Map.groupBy(rows.filter((r) => r.quote), (r) => r.url ?? '')].map(([, g]) => g);
 
-      if (verdict.supported) {
-        setVerification(db, row.id, Verification.Supported);
-        report.supported++;
-        onResult?.(row, VerifyResult.Supported, verdict.reason);
-      } else {
-        // Auto-reject: an unsupported edge never reaches the human review queue.
-        setVerification(db, row.id, Verification.Unsupported);
-        setEdgeStatus(db, row.id, EdgeStatus.Rejected);
-        report.unsupported++;
-        onResult?.(row, VerifyResult.Unsupported, verdict.reason);
-      }
-    } catch (err) {
-      report.errors++;
-      onResult?.(row, VerifyResult.Error, err instanceof Error ? err.message : String(err));
-    }
-  }
+  const counter = { calls: 0 };
+  const grouped = await mapPool(groups, opts.concurrency ?? DEFAULT_CONCURRENCY, (group) =>
+    verifyGroup(group, deps, counter),
+  );
+
+  const outcomes = [...noQuote.map((row) => ({ row, verdict: NO_QUOTE })), ...grouped.flat()].sort(
+    (a, b) => a.row.id - b.row.id,
+  );
+
+  report.calls = counter.calls;
+  for (const o of outcomes) apply(db, o, report, onResult);
   return report;
+}
+
+async function verifyGroup(group: VerificationRow[], deps: VerifyDeps, counter: { calls: number }): Promise<RowOutcome[]> {
+  const claims = group.map(toClaim);
+  try {
+    counter.calls++;
+    const aligned = alignVerdicts(await deps.verify(claims), group.length);
+    if (aligned) return group.map((row, i) => ({ row, verdict: aligned[i] }));
+  } catch {
+    // fall through to the per-edge retry below
+  }
+  return perEdge(group, deps, counter);
+}
+
+// Bind one verdict to each claim. A length mismatch is unrecoverable (→ per-edge).
+// Otherwise, if the model echoed an "index" (#N) for every claim, trust those to
+// reorder — a same-length but shuffled array would bind verdicts to the wrong
+// edges and silently mis-reject them. With no/partial indices, fall back to the
+// positional order the prompt asked for.
+function alignVerdicts(verdicts: Verdict[], n: number): Verdict[] | null {
+  if (verdicts.length !== n) return null;
+  const byIndex = new Array<Verdict>(n);
+  for (const v of verdicts) {
+    const i = (v.index ?? 0) - 1;
+    if (!Number.isInteger(i) || i < 0 || i >= n || byIndex[i] !== undefined) return verdicts;
+    byIndex[i] = v;
+  }
+  return byIndex;
+}
+
+async function perEdge(group: VerificationRow[], deps: VerifyDeps, counter: { calls: number }): Promise<RowOutcome[]> {
+  return Promise.all(
+    group.map(async (row) => {
+      try {
+        counter.calls++;
+        const [verdict] = await deps.verify([toClaim(row)]);
+        return verdict ? { row, verdict } : { row, error: 'verifier returned no verdict' };
+      } catch (err) {
+        return { row, error: err instanceof Error ? err.message : String(err) };
+      }
+    }),
+  );
+}
+
+function apply(db: DB, o: RowOutcome, report: VerifyReport, onResult?: VerifyListener): void {
+  if ('error' in o) {
+    report.errors++;
+    onResult?.(o.row, VerifyResult.Error, o.error);
+    return;
+  }
+  if (o.verdict.supported) {
+    setVerification(db, o.row.id, Verification.Supported);
+    report.supported++;
+    onResult?.(o.row, VerifyResult.Supported, o.verdict.reason);
+  } else {
+    setVerification(db, o.row.id, Verification.Unsupported);
+    setEdgeStatus(db, o.row.id, EdgeStatus.Rejected);
+    report.unsupported++;
+    onResult?.(o.row, VerifyResult.Unsupported, o.verdict.reason);
+  }
+}
+
+function toClaim(row: VerificationRow): VerifyClaim {
+  return {
+    source: row.source,
+    target: row.target,
+    relation: row.relation,
+    directed: !!row.directed,
+    quote: row.quote ?? '',
+  };
 }

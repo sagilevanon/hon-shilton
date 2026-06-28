@@ -23,11 +23,15 @@ async function main(): Promise<void> {
   console.log(`DB: ${dbPath}`);
   if (useFixture) console.warn('⚠  FIXTURE verification — synthetic verdicts, NOT real Claude Code output.');
 
-  const opts = { force: values.force ?? false, limit: values.limit != null ? Number(values.limit) : undefined };
+  const opts = {
+    force: values.force ?? false,
+    limit: values.limit != null ? Number(values.limit) : undefined,
+    concurrency: values.concurrency != null ? Number(values.concurrency) : undefined,
+  };
   const report = await runVerification(db, opts, buildVerifyDeps(useFixture), logVerdict);
   if (report.total === 0) console.log('nothing to verify — all edges already checked.');
   console.log(
-    `\ndone: ${report.total} edges — ${VerifyResult.Supported}: ${report.supported}, ` +
+    `\ndone: ${report.total} edges in ${report.calls} call(s) — ${VerifyResult.Supported}: ${report.supported}, ` +
       `${VerifyResult.Unsupported}: ${report.unsupported}, errors: ${report.errors}`,
   );
 }

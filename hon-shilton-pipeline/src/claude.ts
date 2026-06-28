@@ -1,21 +1,61 @@
 // One headless Claude Code call, shared by every model-backed stage (extraction,
 // verification). No Anthropic API SDK, no API key — uses the local `claude` login:
 //   claude -p "<prompt>" --output-format json --json-schema <schema> \
-//          --append-system-prompt "<instructions>" --model opus
+//          --append-system-prompt "<instructions>" --model claude-opus-4-7 --effort high
 // Returns the envelope's `structured_output`; the caller narrows it to its schema.
+// Timeouts, `is_error` envelopes (e.g. "Response stalled mid-stream") and crashes
+// are retried once (GRAPH_EXTRACT_RETRIES) before the call is given up on.
 
 import { spawn } from 'node:child_process';
+import { recordClaude, TIMING_ENABLED } from './debug/instrument.js';
+import { withRetry } from './retry.js';
 
-const MODEL = process.env.GRAPH_EXTRACT_MODEL ?? 'opus';
-const TIMEOUT_MS = Number(process.env.GRAPH_EXTRACT_TIMEOUT_MS ?? 360_000);
+const TIMEOUT_MS = Number(process.env.GRAPH_EXTRACT_TIMEOUT_MS ?? 300_000);
+const RETRIES = Number(process.env.GRAPH_EXTRACT_RETRIES ?? 1);
+
+// Default model/effort, chosen by the Phase-C diff eval (plans/ingestion-perf.md):
+// opus-4.7/high is ~2.5x faster than opus-4.8/high for a bounded yield cost and
+// preserves the ownership/funding relations. Override per-run via the env vars.
+export const DEFAULT_MODEL = 'claude-opus-4-7';
+export const DEFAULT_EFFORT = 'high';
+
+export function resolveModelConfig(env: NodeJS.ProcessEnv = process.env): { model: string; effort: string } {
+  return {
+    model: env.GRAPH_EXTRACT_MODEL ?? DEFAULT_MODEL,
+    effort: env.GRAPH_EXTRACT_EFFORT ?? DEFAULT_EFFORT,
+  };
+}
 
 export interface ClaudeCall {
   prompt: string;
   schema: object;
   systemPrompt: string;
+  label?: string;
 }
 
+export class RetryableClaudeError extends Error {}
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+export function isErrorEnvelope(envelope: any): boolean {
+  return envelope?.is_error === true;
+}
+
+function envelopeError(envelope: any): string {
+  return String(envelope?.result ?? envelope?.subtype ?? 'unknown error').slice(0, 300);
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
 export function runClaude(call: ClaudeCall): Promise<unknown> {
+  return withRetry(() => runClaudeOnce(call), {
+    retries: RETRIES,
+    retryable: (err) => err instanceof RetryableClaudeError,
+    onRetry: (err, attempt) =>
+      console.warn(`claude ${call.label ?? ''} attempt ${attempt} failed (${message(err)}); retrying…`),
+  });
+}
+
+function runClaudeOnce(call: ClaudeCall): Promise<unknown> {
+  const { model, effort } = resolveModelConfig();
   const args = [
     '-p',
     call.prompt,
@@ -26,37 +66,81 @@ export function runClaude(call: ClaudeCall): Promise<unknown> {
     '--append-system-prompt',
     call.systemPrompt,
     '--model',
-    MODEL,
+    model,
+    '--effort',
+    effort,
   ];
 
   return new Promise((resolve, reject) => {
+    const wallStart = performance.now();
     const proc = spawn('claude', args, { stdio: ['ignore', 'pipe', 'pipe'], env: process.env });
     let out = '';
     let err = '';
+    let done = false;
+    const settle = (fn: () => void) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      fn();
+    };
     const timer = setTimeout(() => {
       proc.kill('SIGKILL');
-      reject(new Error(`claude call timed out after ${TIMEOUT_MS}ms`));
+      settle(() => reject(new RetryableClaudeError(`claude call timed out after ${TIMEOUT_MS}ms`)));
     }, TIMEOUT_MS);
 
     proc.stdout.on('data', (d) => (out += d));
     proc.stderr.on('data', (d) => (err += d));
-    proc.on('error', (e) => {
-      clearTimeout(timer);
-      reject(new Error(`failed to spawn claude (is the CLI installed/on PATH?): ${e.message}`));
-    });
-    proc.on('close', (code) => {
-      clearTimeout(timer);
-      if (code !== 0) return reject(new Error(`claude exited ${code}: ${(err || out).slice(0, 600)}`));
-      let envelope: { structured_output?: unknown };
-      try {
-        envelope = JSON.parse(out);
-      } catch (e) {
-        return reject(new Error(`could not parse claude JSON output: ${(e as Error).message}`));
-      }
-      if (envelope.structured_output === undefined) {
-        return reject(new Error('claude returned no structured_output matching the schema'));
-      }
-      resolve(envelope.structured_output);
-    });
+    proc.on('error', (e) =>
+      settle(() => reject(new Error(`failed to spawn claude (is the CLI installed/on PATH?): ${e.message}`))),
+    );
+    proc.on('close', (code) =>
+      settle(() => {
+        let envelope: { structured_output?: unknown };
+        try {
+          envelope = JSON.parse(out);
+        } catch (e) {
+          return reject(
+            code === 0
+              ? new Error(`could not parse claude JSON output: ${(e as Error).message}`)
+              : new RetryableClaudeError(`claude exited ${code}: ${(err || out).slice(0, 600)}`),
+          );
+        }
+        if (TIMING_ENABLED) recordClaudeEnvelope(call.label ?? 'claude', performance.now() - wallStart, envelope);
+        if (isErrorEnvelope(envelope)) {
+          return reject(new RetryableClaudeError(`claude reported is_error: ${envelopeError(envelope)}`));
+        }
+        if (code !== 0) {
+          return reject(new RetryableClaudeError(`claude exited ${code}: ${(err || out).slice(0, 600)}`));
+        }
+        if (envelope.structured_output === undefined) {
+          return reject(new Error('claude returned no structured_output matching the schema'));
+        }
+        resolve(envelope.structured_output);
+      }),
+    );
   });
 }
+
+function message(err: unknown): string {
+  return (err instanceof Error ? err.message : String(err)).slice(0, 120);
+}
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function recordClaudeEnvelope(label: string, wallMs: number, envelope: any): void {
+  const u = envelope?.usage ?? {};
+  recordClaude({
+    label,
+    wallMs,
+    durationMs: envelope?.duration_ms,
+    durationApiMs: envelope?.duration_api_ms,
+    ttftMs: envelope?.ttft_ms,
+    timeToRequestMs: envelope?.time_to_request_ms,
+    numTurns: envelope?.num_turns,
+    inputTokens: u.input_tokens,
+    outputTokens: u.output_tokens,
+    cacheCreationTokens: u.cache_creation_input_tokens,
+    cacheReadTokens: u.cache_read_input_tokens,
+    costUsd: envelope?.total_cost_usd,
+  });
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */

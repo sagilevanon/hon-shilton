@@ -4,6 +4,7 @@
 
 import { ArticleStatus } from './article-status.js';
 import { fetchText } from './http.js';
+import { timed } from './debug/instrument.js';
 import type { ArticleInput } from './types.js';
 
 export interface FetchResult {
@@ -15,11 +16,11 @@ export interface FetchResult {
 export async function fetchArticle(url: string, opts?: { tags?: string[] }): Promise<FetchResult> {
   let html: string;
   try {
-    html = await fetchText(url);
+    html = await timed('http_fetch', () => fetchText(url));
   } catch (err) {
     return { status: ArticleStatus.Error, reason: (err as Error).message };
   }
-  return parseArticle(html, url, opts);
+  return timed('parse', () => parseArticle(html, url, opts));
 }
 
 // Pure parser (no network): pull the article out of page HTML via JSON-LD.

@@ -6,10 +6,16 @@ export function parseCli() {
     allowPositionals: true,
     options: {
       db: { type: 'string' },
+      from: { type: 'string' },
+      base: { type: 'string' },
+      candidate: { type: 'string' },
       limit: { type: 'string' },
+      concurrency: { type: 'string' },
       'delay-ms': { type: 'string' },
       fixture: { type: 'boolean' },
       force: { type: 'boolean' },
+      normalize: { type: 'boolean' },
+      gazetteer: { type: 'boolean' },
       'scrape-only': { type: 'boolean' },
     },
   });
