@@ -1,7 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { openDb, upsertEntity, findOrCreateEdge, addSource, getGraph } from './db.js';
+import { finalizeExtraction, IngestOutcome } from './pipeline.js';
 import { parseArticle } from './ynet.js';
+import type { ArticleInput } from './types.js';
 
 describe('db round-trip', () => {
   it('dedups entities (qid + name), dedups edges, accumulates sources, serves display shape', () => {
@@ -51,6 +53,50 @@ describe('db round-trip', () => {
     const g = getGraph(db);
     assert.equal(g.edges.length, 1, 'single symmetric edge');
     assert.equal(g.edges[0].value, 2, 'both directions corroborate the one edge');
+  });
+});
+
+describe('relevance gate', () => {
+  const article: ArticleInput = { url: 'http://x', title: 'כותרת', body: 'גוף', outlet: 'ynet' };
+
+  it('stores nothing and reports off-topic when the article is flagged irrelevant', async () => {
+    const db = openDb(':memory:');
+    const report = await finalizeExtraction(db, article, {
+      relevant: false,
+      topic: 'ספורט',
+      reason: 'דרבי כדורגל, ללא זיקה לאנשי ציבור או כספים',
+      entities: [{ canonical_name: 'קבוצת כדורגל', type: 'organization' }],
+      relations: [],
+    });
+
+    assert.equal(report.outcome, IngestOutcome.Irrelevant);
+    assert.equal(report.entities, 0);
+    assert.equal(report.relations, 0);
+    assert.equal(report.title, 'כותרת', 'the title rides along so the log identifies the article');
+    assert.equal(report.reason, 'ספורט — דרבי כדורגל, ללא זיקה לאנשי ציבור או כספים');
+
+    const g = getGraph(db);
+    assert.equal(g.nodes.length, 0, 'an irrelevant article adds nothing to the graph');
+    assert.equal(g.edges.length, 0);
+  });
+
+  it('stores the graph when the article is relevant', async () => {
+    const db = openDb(':memory:');
+    const report = await finalizeExtraction(db, article, {
+      relevant: true,
+      topic: 'פוליטי',
+      entities: [
+        { canonical_name: 'בנימין נתניהו', type: 'person' },
+        { canonical_name: 'הליכוד', type: 'organization' },
+      ],
+      relations: [
+        { source: 'בנימין נתניהו', target: 'הליכוד', relation: 'חבר ב', category: 'פוליטי', directed: true, confidence: 'high', quote: 'q' },
+      ],
+    });
+
+    assert.equal(report.outcome, IngestOutcome.Ingested);
+    assert.equal(report.relations, 1);
+    assert.equal(getGraph(db).edges.length, 1);
   });
 });
 

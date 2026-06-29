@@ -12,6 +12,7 @@ export enum IngestOutcome {
   Cached = 'cached',
   PremiumSkipped = 'premium_skipped',
   ScrapeOnly = 'scrape_only',
+  Irrelevant = 'irrelevant',
   Error = 'error',
 }
 
@@ -78,6 +79,16 @@ export function extractArticle(deps: IngestDeps, article: ArticleInput): Promise
 }
 
 export async function finalizeExtraction(db: DB, article: ArticleInput, result: ExtractionResult): Promise<IngestReport> {
+  if (result.relevant === false) {
+    return {
+      url: article.url,
+      outcome: IngestOutcome.Irrelevant,
+      title: article.title,
+      entities: 0,
+      relations: 0,
+      reason: rejectionReason(result),
+    };
+  }
   const relations = await timed('db_store', () => storeExtraction(db, article, result));
   return {
     url: article.url,
@@ -97,6 +108,10 @@ export async function ingestOne(db: DB, ref: FeedRef, opts: IngestOptions, deps:
 
 function terminal(report: IngestReport): Prepared {
   return { kind: 'terminal', report };
+}
+
+function rejectionReason(result: ExtractionResult): string | undefined {
+  return [result.topic, result.reason].map((s) => s?.trim()).filter(Boolean).join(' — ') || undefined;
 }
 
 export function storeExtraction(db: DB, article: ArticleInput, result: ExtractionResult): number {

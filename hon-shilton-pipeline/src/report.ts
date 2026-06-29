@@ -6,6 +6,7 @@ const LABELS: Record<IngestOutcome, string> = {
   [IngestOutcome.Cached]: 'cached   ',
   [IngestOutcome.PremiumSkipped]: 'premium  ',
   [IngestOutcome.ScrapeOnly]: 'scraped  ',
+  [IngestOutcome.Irrelevant]: 'off-topic',
   [IngestOutcome.Error]: 'error    ',
 };
 
@@ -20,8 +21,13 @@ export function printSummary(reports: IngestReport[]): void {
 }
 
 function describe(report: IngestReport): string {
-  if (report.outcome === IngestOutcome.Ingested) return `${report.entities} entities, ${report.relations} relations`;
-  return report.reason ?? '';
+  const title = report.title ? `«${report.title}» ` : '';
+  if (report.outcome === IngestOutcome.Ingested) {
+    return `${title}${report.entities} entities, ${report.relations} relations`;
+  }
+  const reason = report.reason ?? '';
+  if (title && reason) return `${title}— ${reason}`;
+  return `${title}${reason}`.trim();
 }
 
 function formatCounts(counts: OutcomeCounts): string {
