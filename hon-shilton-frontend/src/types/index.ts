@@ -7,6 +7,7 @@ export interface Node {
   description?: string;
   qid?: string | null;
   aliases?: string[];
+  isState?: boolean;
 }
 
 export interface Edge {
