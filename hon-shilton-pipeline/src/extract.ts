@@ -10,6 +10,9 @@ const SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
+    relevant: { type: 'boolean' },
+    topic: { type: ['string', 'null'] },
+    reason: { type: ['string', 'null'] },
     entities: {
       type: 'array',
       items: {
@@ -46,7 +49,7 @@ const SCHEMA = {
       },
     },
   },
-  required: ['entities', 'relations'],
+  required: ['relevant', 'entities', 'relations'],
 } as const;
 
 function systemPrompt(): string {
@@ -54,8 +57,27 @@ function systemPrompt(): string {
     .map((cat) => `  ${cat}: ${RELATION_VOCAB[cat].join(', ')}`)
     .join('\n');
   return [
-    'You extract a knowledge graph from Israeli news articles for a public-transparency project.',
+    'You extract a knowledge graph from Israeli news articles for a public-transparency project',
+    'that maps how people in power connect to money: politicians, public officials, regulators and',
+    'politically-exposed persons (PEPs), and their financial / ownership / funding / professional /',
+    'political / family ties — in both the public and the private sector.',
     'Given ONE article, return only entities and relationships the article itself states or clearly implies.',
+    '',
+    'RELEVANCE — decide FIRST whether this article is in scope, and set "relevant" accordingly:',
+    '- relevant=true when its core subject involves politics / governance / public office / parties /',
+    '  regulators, OR money & finance in the public OR private sector (ownership, shareholding, control,',
+    '  funding, donations, investment, loans, payments, tenders/contracts, executives, companies, funds),',
+    '  OR a politically-exposed person and their network of power/money ties, OR conflict-of-interest /',
+    '  lobbying / public corruption.',
+    '- relevant=false when its core subject is off-topic for this project: sports, entertainment, celebrity,',
+    '  culture/arts, ordinary or violent crime (NOT public corruption), accidents, weather, environment,',
+    '  health/medicine, consumer/tech/gadgets, travel, food, lifestyle, religion, human-interest or science —',
+    '  even if a public figure is mentioned in passing.',
+    '- When relevant=false, return entities=[] and relations=[] and extract NOTHING ELSE.',
+    '- topic: a short (1-3 word) HEBREW label of the article\'s actual subject (e.g. "ספורט", "פוליטי", "פלילים").',
+    '- reason: when relevant=false, ONE short HEBREW line explaining why it is out of scope, naming the actual',
+    '  subject, so a reviewer understands the rejection WITHOUT opening the article; null when relevant=true.',
+    '- When genuinely unsure between in-scope and out-of-scope, prefer relevant=true.',
     '',
     'ENTITIES — real people and organizations named in the article:',
     '- canonical_name: full canonical HEBREW name (e.g. "בנימין נתניהו", not "ביבי" or "ראש הממשלה").',
@@ -107,6 +129,9 @@ export async function extractWithClaude(article: ArticleInput): Promise<Extracti
 // (no Claude Code call). Logged loudly by the caller; never real extraction.
 export function extractFixture(_article: ArticleInput): ExtractionResult {
   return {
+    relevant: true,
+    topic: 'פוליטי',
+    reason: null,
     entities: [
       {
         canonical_name: 'בנימין נתניהו',

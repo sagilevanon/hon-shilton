@@ -36,6 +36,9 @@ export interface ExtractedRelation {
 }
 
 export interface ExtractionResult {
+  relevant?: boolean; // off-topic articles (sports, crime, …) are flagged false and stored as nothing
+  topic?: string | null; // short label of the article's actual subject
+  reason?: string | null; // one-line rejection rationale when relevant=false, for the run log
   entities: ExtractedEntity[];
   relations: ExtractedRelation[];
 }
