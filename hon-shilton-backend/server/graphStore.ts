@@ -5,6 +5,7 @@
 // tables yet (pipeline never run), reports not-ready so endpoints return 503.
 
 import { DatabaseSync } from 'node:sqlite';
+import { isStateEntity } from './states.js';
 
 export enum ReviewAction {
   Approve = 'approve',
@@ -78,7 +79,12 @@ const entityColumns = (t: string) =>
 
 function toDisplayNode(n: NodeRow): Record<string, unknown> {
   const { aliases, ...rest } = n;
-  return { ...rest, group: rest.type === 'person' ? 1 : 2, aliases: aliases ? aliases.split('\n') : [] };
+  return {
+    ...rest,
+    group: rest.type === 'person' ? 1 : 2,
+    aliases: aliases ? aliases.split('\n') : [],
+    isState: isStateEntity(rest.qid, rest.name),
+  };
 }
 
 // "entity is touched by at least one visible edge" — the egocentric/public scope.

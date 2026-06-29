@@ -108,6 +108,32 @@ function buildPathDb(file: string): void {
   db.close();
 }
 
+// States DB: country entities (super-hubs) flagged so the explorer can toggle
+// them off. entity 1 is a state by QID, entity 2 a state by canonical-name
+// fallback (un-QID'd country), entities 3/4 are a non-state org and a person.
+function buildStatesDb(file: string): void {
+  const db = new DatabaseSync(file);
+  db.exec(`
+    CREATE TABLE entities (id INTEGER PRIMARY KEY AUTOINCREMENT, qid TEXT, canonical_name TEXT NOT NULL,
+      type TEXT NOT NULL, subtype TEXT, description TEXT, image TEXT) STRICT;
+    CREATE TABLE aliases (id INTEGER PRIMARY KEY AUTOINCREMENT, entity_id INTEGER, alias TEXT) STRICT;
+    CREATE TABLE edges (id INTEGER PRIMARY KEY AUTOINCREMENT, src_entity_id INTEGER, tgt_entity_id INTEGER,
+      relation TEXT, category TEXT, subcategory TEXT, confidence TEXT, status TEXT DEFAULT 'approved',
+      verification TEXT DEFAULT 'supported', directed INTEGER DEFAULT 1, created_at TEXT) STRICT;
+    CREATE TABLE edge_sources (id INTEGER PRIMARY KEY AUTOINCREMENT, edge_id INTEGER, url TEXT, outlet TEXT,
+      published_date TEXT, quote TEXT) STRICT;
+  `);
+  db.prepare("INSERT INTO entities (qid, canonical_name, type, subtype) VALUES ('Q30', 'ארצות הברית', 'organization', 'government_body')").run();
+  db.prepare("INSERT INTO entities (canonical_name, type) VALUES ('ישראל', 'organization')").run();
+  db.prepare("INSERT INTO entities (canonical_name, type, subtype) VALUES ('הליכוד', 'organization', 'political_party')").run();
+  db.prepare("INSERT INTO entities (qid, canonical_name, type) VALUES ('Q123', 'בנימין נתניהו', 'person')").run();
+  const edge = db.prepare("INSERT INTO edges (src_entity_id, tgt_entity_id, relation, category, confidence) VALUES (?, ?, 'קשור', 'פוליטי', 'high')");
+  edge.run(4, 1); // נתניהו — ארה״ב
+  edge.run(4, 2); // נתניהו — ישראל
+  edge.run(4, 3); // נתניהו — הליכוד
+  db.close();
+}
+
 describe('graph + review API (SQLite-backed)', () => {
   let tmp: string;
   let empty: string;
@@ -374,6 +400,33 @@ describe('graph + review API (SQLite-backed)', () => {
       assert.equal((await api.get('/subgraph?from=abc&to=4')).status, 422, 'non-integer');
       assert.equal((await api.get('/subgraph?from=1&to=1')).status, 422, 'from === to');
       assert.equal((await api.get('/subgraph?from=1&to=999')).status, 404, 'unknown entity');
+    });
+  });
+
+  describe('state flagging (explorer states toggle)', () => {
+    function states() {
+      const p = path.join(tmp, `states-${seq++}.db`);
+      buildStatesDb(p);
+      return appWith(p);
+    }
+
+    it('flags state entities by QID and by canonical-name fallback, leaving others unflagged', async () => {
+      const r = await states().get('/Nodes');
+      assert.equal(r.status, 200);
+      const byName = Object.fromEntries(r.body.map((n: { name: string; isState: boolean }) => [n.name, n.isState]));
+      assert.equal(byName['ארצות הברית'], true, 'state matched by QID');
+      assert.equal(byName['ישראל'], true, 'un-QID\'d country matched by name');
+      assert.equal(byName['הליכוד'], false, 'a political party is not a state');
+      assert.equal(byName['בנימין נתניהו'], false, 'a person is not a state');
+    });
+
+    it('carries isState through search and neighbors too', async () => {
+      const api = states();
+      const search = await api.get('/search?q=ארצות');
+      assert.equal(search.body[0].isState, true);
+      const neighbors = await api.get('/neighbors/4');
+      const usa = neighbors.body.nodes.find((n: { name: string }) => n.name === 'ארצות הברית');
+      assert.equal(usa.isState, true);
     });
   });
 
